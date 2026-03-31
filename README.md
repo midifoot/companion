@@ -1,6 +1,6 @@
-#MFKB companion app 
+# MFKB companion app 
 
-the goal of this app (python) is to provide : 
+the goal of this app is to provide : 
 - helpers and tools to manage midi maps / scales / chords (that is "musical content") of the MFKB platform 
 - an SD card files manager to retreive / store / edit and check integrity and format of the system's files
 - a firmware update/backup to avoid user's complex manipulations with the board

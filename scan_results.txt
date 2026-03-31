@@ -1,0 +1,203 @@
+--- MFKB Hardware Scanner ---
+
+[ Device Found ]
+Port: /dev/ttyS31
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS30
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS29
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS28
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS27
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS26
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS25
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS24
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS23
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS22
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS21
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS20
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS19
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS18
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS17
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS16
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS15
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS14
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS13
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS12
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS11
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS10
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS9
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS8
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS7
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS6
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS5
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS4
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS3
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS2
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS1
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyS0
+Description: n/a
+Hardware ID: n/a
+>> Status: Unknown Device
+
+[ Device Found ]
+Port: /dev/ttyUSB0
+Description: USB Serial
+Hardware ID: USB VID:PID=1A86:7523 LOCATION=1-1
+VID: 0x1a86 (Hex)
+PID: 0x7523 (Hex)
+>> Status: Unknown Device
+
+-----------------------------

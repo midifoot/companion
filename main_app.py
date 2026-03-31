@@ -1,12 +1,15 @@
 import sys
+import os
 import re
+import subprocess
 import serial.tools.list_ports
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QTabWidget, QLabel, QPushButton, 
-                             QFrame, QGridLayout, QLineEdit, QCheckBox, QTextEdit)
-from PyQt5.QtCore import Qt, QTimer
+                             QFrame, QGridLayout, QLineEdit, QCheckBox, QTextEdit, 
+                             QComboBox, QFileDialog) # Added QFileDialog
+from PyQt5.QtCore import Qt, QTimer, QProcess
 
-# --- THE STYLESHEET (Golden v1.0) ---
+# --- THE STYLESHEET (Golden v1.2 - Added Backup & Layout Fixes) ---
 STYLE_SHEET = """
 QMainWindow { background-color: #0a0a0a; }
 #ConnBar { background-color: #161b22; border-bottom: 1px solid #30363d; }
@@ -19,30 +22,32 @@ QTabBar::tab {
 }
 QTabBar::tab:selected { background: #2ecc71; color: #000000; font-weight: normal; }
 
-/* UNIFIED BUTTON STYLE */
-QPushButton#ChannelBtn, QPushButton#NoteBtn, #UtilityBtn {
+QPushButton#ChannelBtn, QPushButton#NoteBtn, #UtilityBtn, #FlashBtn, #BackupBtn {
     background-color: #21262d; border: 1px solid #30363d;
     color: #8b949e; border-radius: 4px; font-weight: bold; font-size: 12px;
 }
 QPushButton#ChannelBtn:checked, QPushButton#NoteBtn:checked {
     background-color: #2ecc71; color: #000000; border: 1px solid #ffffff;
 }
-QPushButton#ChannelBtn:hover, QPushButton#NoteBtn:hover, #UtilityBtn:hover { border-color: #2ecc71; }
+QPushButton#FlashBtn { background-color: #2ecc71; color: #000000; border: none; }
+QPushButton#FlashBtn:disabled, #BackupBtn:disabled { background-color: #30363d; color: #4d535e; border: 1px solid #21262d; }
+QPushButton#BackupBtn { background-color: #161b22; color: #e6edf3; border-color: #30363d; padding: 0 10px; }
+QPushButton#ChannelBtn:hover, QPushButton#NoteBtn:hover, #UtilityBtn:hover, #FlashBtn:hover, #BackupBtn:hover { border-color: #2ecc71; }
 
 QPushButton#NoteBtn[locked="true"] { border: 2px solid #ff4444; }
 
-QLineEdit {
+QLineEdit, QComboBox {
     background-color: #0d1117; border: 1px solid #30363d;
-    padding: 8px; border-radius: 4px; color: #e6edf3;
-    font-family: monospace; font-size: 14px;
+    padding: 8px; border-radius: 4px; color: #8b949e;
+    font-family: monospace; font-size: 12px;
 }
 
-QTextEdit#ResultBox {
+QTextEdit#ResultBox, QTextEdit#ConsoleBox {
     background-color: #000000;
     border: 1px solid #30363d;
     color: #2ecc71;
     font-family: 'Courier New', monospace;
-    font-size: 12px;
+    font-size: 11px;
     border-radius: 4px;
 }
 """
@@ -54,19 +59,35 @@ class MFKBApp(QMainWindow):
         self.selected_notes = set() 
         self.chan_buttons = []
         self.note_buttons = []
+        self.current_port = None
+        self.operation_type = "FLASH" # Helper to track FLASH vs BACKUP
+        
+        # Paths Configuration
+        self.tools_path = "./tools/avrdude"
+        self.conf_path = "./tools/avrdude_linux.conf"
+        self.firmware_dir = os.path.abspath("./firmware")
         
         self.known_boards = [
             {'vid': 0x1a86, 'pid': 0x7523, 'name': 'CH340 (AZ-Delivery)'},
             {'vid': 0x2341, 'pid': 0x0042, 'name': 'Mega 2560 (Elegoo/Official)'}
         ]
+        
+        # Initialize Process for Avrdude
+        self.process = QProcess(self)
+        self.process.readyReadStandardError.connect(self.on_console_output)
+        self.process.readyReadStandardOutput.connect(self.on_console_output)
+        self.process.finished.connect(self.on_flash_finished)
+
         self.init_ui()
         self.timer = QTimer()
         self.timer.timeout.connect(self.auto_detect_hardware)
         self.timer.start(2000)
+        
+        self.refresh_firmware_list()
 
     def init_ui(self):
-        self.setWindowTitle("MFKB Companion App v1.0")
-        self.setFixedSize(800, 550) 
+        self.setWindowTitle("MFKB Companion App v1.2")
+        self.setFixedSize(800, 600) 
         self.setStyleSheet(STYLE_SHEET)
 
         central = QWidget(); self.setCentralWidget(central)
@@ -81,10 +102,54 @@ class MFKBApp(QMainWindow):
 
         # --- TABS ---
         self.tabs = QTabWidget(); main_layout.addWidget(self.tabs)
+        
         self.tab_gen = QWidget(); self.tabs.addTab(self.tab_gen, "MidiMap Generator")
-        self.tabs.addTab(QWidget(), "SD Card Manager"); self.tabs.addTab(QWidget(), "Firmware Uploader")
+        self.tab_sd = QWidget(); self.tabs.addTab(self.tab_sd, "SD Card Manager")
+        self.tab_flash = QWidget(); self.tabs.addTab(self.tab_flash, "Firmware Uploader")
 
         self.setup_bitmasker_tab()
+        self.setup_uploader_tab()
+
+    def setup_uploader_tab(self):
+        layout = QVBoxLayout(self.tab_flash); layout.setContentsMargins(30, 20, 30, 20)
+        
+        # Header with Backup Button
+        header_row = QHBoxLayout()
+        header_row.addWidget(QLabel("FIRMWARE UPDATE (ATmega2560)", styleSheet="color: #2ecc71; font-weight: bold; font-size: 14px;"))
+        header_row.addStretch()
+        self.btn_backup = QPushButton("BACKUP CURRENT FIRMWARE"); self.btn_backup.setObjectName("BackupBtn")
+        self.btn_backup.setFixedSize(220, 30); self.btn_backup.setEnabled(False)
+        self.btn_backup.clicked.connect(self.start_backup)
+        header_row.addWidget(self.btn_backup)
+        layout.addLayout(header_row)
+
+        layout.addWidget(QLabel("Select the version to upload to your MFKB device.", styleSheet="color: #8b949e; font-size: 11px;"))
+        layout.addSpacing(20)
+
+        # Selection Row
+        sel_row = QHBoxLayout()
+        self.combo_hex = QComboBox(); self.combo_hex.setMinimumWidth(300)
+        self.btn_refresh = QPushButton("Refresh List"); self.btn_refresh.setObjectName("UtilityBtn")
+        self.btn_refresh.setFixedSize(80, 30);
+        self.btn_refresh.clicked.connect(self.refresh_firmware_list)
+        sel_row.addWidget(self.combo_hex); sel_row.addWidget(self.btn_refresh); sel_row.addStretch()
+        layout.addLayout(sel_row)
+        
+        layout.addSpacing(10)
+        
+        # Flash Button
+        self.btn_flash = QPushButton("START FLASHING PROCESS"); self.btn_flash.setObjectName("FlashBtn")
+        self.btn_flash.setFixedHeight(50); self.btn_flash.setEnabled(False)
+        self.btn_flash.clicked.connect(self.start_flash)
+        layout.addWidget(self.btn_flash)
+        
+        layout.addSpacing(20)
+        
+        # Console Output (SHRUNK)
+        layout.addWidget(QLabel("OUTPUT CONSOLE", styleSheet="color: #8b949e; font-weight: bold; font-size: 9px;"))
+        self.console_box = QTextEdit(); self.console_box.setObjectName("ConsoleBox"); self.console_box.setReadOnly(True)
+        self.console_box.setFixedHeight(120) # Shrinked height
+        layout.addWidget(self.console_box)
 
     def setup_bitmasker_tab(self):
         layout = QVBoxLayout(self.tab_gen); layout.setContentsMargins(25, 10, 25, 15); layout.setSpacing(5)
@@ -97,7 +162,6 @@ class MFKBApp(QMainWindow):
         
         self.btn_check_name = QPushButton("Check Name"); self.btn_check_name.setObjectName("UtilityBtn")
         self.btn_check_name.setFixedWidth(90)
-        # Placeholder for future SD lookup
         
         input_row.addWidget(QLabel("ID:")); input_row.addWidget(self.map_id_edit)
         input_row.addWidget(QLabel("NAME:")); input_row.addWidget(self.map_name_edit)
@@ -150,21 +214,99 @@ class MFKBApp(QMainWindow):
         res_box_lay.addWidget(self.result_box); res_box_lay.addWidget(self.btn_copy); layout.addLayout(res_box_lay)
         self.update_result_string()
 
-    # --- LOGIC ---
+    # --- FIRMWARE LOGIC ---
+    def refresh_firmware_list(self):
+        self.combo_hex.clear()
+        if not os.path.exists(self.firmware_dir):
+            os.makedirs(self.firmware_dir)
+        
+        files = sorted([f for f in os.listdir(self.firmware_dir) if f.endswith(".hex")])
+        if not files:
+            self.combo_hex.addItem("No .hex files found in /firmware")
+            self.btn_flash.setEnabled(False)
+        else:
+            self.combo_hex.addItems(files)
+            if self.current_port: self.btn_flash.setEnabled(True)
+
+    def start_flash(self):
+        hex_file = os.path.join(self.firmware_dir, self.combo_hex.currentText())
+        if not os.path.exists(self.tools_path):
+            self.console_box.append("ERROR: avrdude binary not found in /tools")
+            return
+
+        self.operation_type = "FLASH"
+        self.btn_flash.setEnabled(False)
+        self.btn_backup.setEnabled(False)
+        self.btn_refresh.setEnabled(False)
+        self.console_box.clear()
+        self.console_box.append(f"--- Starting Upload: {self.combo_hex.currentText()} ---")
+        
+        args = [
+            "-C", self.conf_path,
+            "-v",
+            "-p", "m2560",
+            "-c", "wiring",
+            "-P", self.current_port,
+            "-b", "115200",
+            "-D",
+            "-U", f"flash:w:{hex_file}:i"
+        ]
+        self.process.start(self.tools_path, args)
+
+    def start_backup(self):
+        # Open System File Manager
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Current Firmware As", 
+                                                  os.path.join(self.firmware_dir, "my_backup.hex"), 
+                                                  "Hex Files (*.hex);;All Files (*)", options=options)
+        
+        if not file_path:
+            return
+
+        self.operation_type = "BACKUP"
+        self.btn_flash.setEnabled(False)
+        self.btn_backup.setEnabled(False)
+        self.btn_refresh.setEnabled(False)
+        self.console_box.clear()
+        self.console_box.append(f"--- Starting Backup to: {os.path.basename(file_path)} ---")
+        
+        # Build Command for Reading
+        args = [
+            "-C", self.conf_path,
+            "-v",
+            "-p", "m2560",
+            "-c", "wiring",
+            "-P", self.current_port,
+            "-b", "115200",
+            "-U", f"flash:r:{file_path}:i"
+        ]
+        self.process.start(self.tools_path, args)
+
+    def on_console_output(self):
+        data = self.process.readAllStandardError().data().decode()
+        if not data:
+            data = self.process.readAllStandardOutput().data().decode()
+        self.console_box.insertPlainText(data)
+        self.console_box.ensureCursorVisible()
+
+    def on_flash_finished(self):
+        self.btn_flash.setEnabled(True if self.current_port else False)
+        self.btn_backup.setEnabled(True if self.current_port else False)
+        self.btn_refresh.setEnabled(True)
+        self.console_box.append(f"\n--- {self.operation_type} Process Finished ---")
+        # Auto refresh list in case a new backup was saved in /firmware
+        self.refresh_firmware_list()
+
+    # --- CORE LOGIC ---
     def clear_map(self):
-        """Resets the entire mapping to zero."""
         self.note_masks = [0] * 25
         self.selected_notes.clear()
         for btn in self.note_buttons:
-            btn.blockSignals(True)
-            btn.setChecked(False)
-            btn.setProperty("locked", "false")
-            btn.style().unpolish(btn); btn.style().polish(btn)
-            btn.blockSignals(False)
+            btn.blockSignals(True); btn.setChecked(False); btn.setProperty("locked", "false")
+            btn.style().unpolish(btn); btn.style().polish(btn); btn.blockSignals(False)
         for btn in self.chan_buttons:
             btn.blockSignals(True); btn.setChecked(False); btn.blockSignals(False)
-        self.note_all_chk.setChecked(False)
-        self.chan_all_chk.setChecked(False)
+        self.note_all_chk.setChecked(False); self.chan_all_chk.setChecked(False)
         self.update_result_string()
 
     def on_note_clicked(self):
@@ -231,10 +373,18 @@ class MFKBApp(QMainWindow):
                 if p.vid == board['vid'] and p.pid == board['pid']:
                     self.status_dot.setStyleSheet("color: #2ecc71; font-size: 14px; margin-left: 10px;")
                     self.status_text.setText(f"Connected: {board['name']} ({p.device})")
+                    self.current_port = p.device
+                    # Enable buttons if device is found
+                    self.btn_backup.setEnabled(True)
+                    if self.combo_hex.currentText().endswith(".hex"):
+                        self.btn_flash.setEnabled(True)
                     found = True; break
         if not found:
             self.status_dot.setStyleSheet("color: #e74c3c; font-size: 14px; margin-left: 10px;")
             self.status_text.setText("No Device Detected")
+            self.current_port = None
+            self.btn_flash.setEnabled(False)
+            self.btn_backup.setEnabled(False)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv); window = MFKBApp(); window.show(); sys.exit(app.exec_())

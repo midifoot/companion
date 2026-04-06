@@ -171,7 +171,7 @@ class MFKBApp(QMainWindow):
 
         # --- STEP 2: NOTE SELECTION ---
         note_head = QHBoxLayout()
-        note_head.addWidget(QLabel("STEP 2 : SELECT NOTES", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
+        note_head.addWidget(QLabel("STEP 2 : SELECT NOTES (Hold CTRL for multiple notes)", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
         self.note_all_chk = QCheckBox("Select All"); self.note_all_chk.setStyleSheet("color: white; font-size: 10px;")
         self.note_all_chk.stateChanged.connect(self.on_note_select_all)
         note_head.addStretch(); note_head.addWidget(self.note_all_chk); layout.addLayout(note_head)

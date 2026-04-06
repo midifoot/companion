@@ -1,0 +1,5 @@
+# used to map the chord types on the upper register , user editing allowed
+#(first line : basic chords / second line : enhanced chords)
+#M  m s4  d  a 	4  5  M6  m7  7   s9   d
+C2,C1,C3,C7,C8,C5,C6,C14,C11,C13,C153,C161,C183
+C2,C1,C3,C7,C8,C5,C6,C14,C11,C13,C153,C161,C183

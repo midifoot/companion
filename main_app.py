@@ -12,13 +12,13 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt5.QtCore import Qt, QTimer, QProcess, QEvent
 from PyQt5.QtGui import QTextCursor, QIntValidator
 
-# --- PATH CONFIGURATION FOR COMPILED VERSION ---
+# --- PATH CONFIGURATION ---
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# --- THE STYLESHEET (Golden v2.1.6) ---
+# --- THE STYLESHEET (Golden v2.1.10) ---
 STYLE_SHEET = """
 QMainWindow, QDialog { 
     background-color: #0a0a0a; 
@@ -311,6 +311,12 @@ class MFKBApp(QMainWindow):
         self.active_chord_index = 0
         self.fav_combos = [] 
         
+        # Live Mode UI Tracking
+        self.live_combos_basic = [] 
+        self.live_combos_enhanced = []
+        self.live_labels_basic = []
+        self.live_labels_enhanced = []
+        
         # Deep Validation Database (IDs and Names)
         self.asset_db = {
             "CHORDS_ID": set(), "CHORDS_NAME": set(),
@@ -319,6 +325,7 @@ class MFKBApp(QMainWindow):
             "KEYMAPS_ID": set(), "KEYMAPS_NAME": set(),
             "MIDIMAPS_ID": set(), "MIDIMAPS_NAME": set()
         }
+        self.chord_map = {} # Internal ID -> Name mapping
         
         # Paths
         self.tools_path = os.path.join(BASE_DIR, "tools", "avrdude")
@@ -360,8 +367,8 @@ class MFKBApp(QMainWindow):
         self.refresh_local_sd_list()
 
     def init_ui(self):
-        self.setWindowTitle("MFKB Companion App v2.1.6")
-        self.setFixedSize(1000, 750) # Set to golden width 1000
+        self.setWindowTitle("MFKB Companion App v2.1.10")
+        self.setFixedSize(1000, 720) 
         self.setStyleSheet(STYLE_SHEET)
         
         central = QWidget()
@@ -369,7 +376,7 @@ class MFKBApp(QMainWindow):
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 1. Connection Header
+        # Header
         self.conn_bar = QFrame()
         self.conn_bar.setObjectName("ConnBar")
         self.conn_bar.setFixedHeight(40)
@@ -386,7 +393,7 @@ class MFKBApp(QMainWindow):
         conn_lay.addStretch()
         main_layout.addWidget(self.conn_bar)
 
-        # 2. Main Tabs
+        # Main Tabs
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs)
         
@@ -404,6 +411,9 @@ class MFKBApp(QMainWindow):
 
         self.tab_favs = QWidget()
         self.tabs.addTab(self.tab_favs, "Favs Manager")
+
+        self.tab_live = QWidget()
+        self.tabs.addTab(self.tab_live, "Live Mode")
         
         self.tab_sd = QWidget()
         self.tabs.addTab(self.tab_sd, "SD Card Manager")
@@ -411,12 +421,13 @@ class MFKBApp(QMainWindow):
         self.tab_flash = QWidget()
         self.tabs.addTab(self.tab_flash, "Firmware Uploader")
 
-        # 3. Setup Contents
+        # Setup Contents
         self.setup_bitmasker_tab()
         self.setup_keymap_tab()
         self.setup_chord_tab()
         self.setup_preset_tab()
         self.setup_favs_tab()
+        self.setup_live_mode_tab()
         self.setup_sd_tab()
         self.setup_uploader_tab()
 
@@ -480,8 +491,8 @@ class MFKBApp(QMainWindow):
 
         path = os.path.join(self.sd_local_dir, filename)
         try:
-            # Overwrite logic for FAVS, append for others
-            mode = 'w' if filename == "FAVS.FKB" else 'a+'
+            # Overwrite logic for FAVS and LIVEMAP, append for others
+            mode = 'w' if filename in ["FAVS.FKB", "LIVEMAP.FKB"] else 'a+'
             
             with open(path, mode) as f:
                 if mode == 'a+':
@@ -492,7 +503,7 @@ class MFKBApp(QMainWindow):
                             f.write('\n')
                 f.write(line_data.strip() + '\n')
             
-            button_ref.setText("ADDED!" if filename != "FAVS.FKB" else "SAVED!")
+            button_ref.setText("ADDED!" if mode == 'a+' else "SAVED!")
             button_ref.setEnabled(False)
             QTimer.singleShot(1500, lambda: self.reset_generator_tab(button_ref))
         except Exception as e:
@@ -503,7 +514,7 @@ class MFKBApp(QMainWindow):
         current_idx = self.tabs.currentIndex()
         tab_name = self.tabs.tabText(current_idx)
         
-        if "Favs" in tab_name:
+        if "Favs" in tab_name or "Live" in tab_name:
             btn.setText("SAVE TO FILE")
         else:
             btn.setText("ADD TO FILE")
@@ -719,132 +730,14 @@ class MFKBApp(QMainWindow):
         self.pre_trans.setCurrentText("0"); self.update_preset_output()
 
     def update_preset_output(self):
-        p_id = self.pre_id_edit.text()
-        p_name = self.pre_name_edit.text()
-        data = f"{self.pre_root_combo.currentText()},{self.pre_bs_combo.currentText()},{self.pre_es_combo.currentText()},{self.pre_km_combo.currentText()},{self.pre_mm_combo.currentText()},{self.pre_vol.text()},{self.pre_vel.text()},{self.pre_trans.currentText()},{self.pre_chan.text()},0"
-        self.pre_res_box.setText(f"P{p_id}:{p_name}:{data}")
+        root = self.pre_root_combo.currentText(); bs = self.pre_bs_combo.currentText(); es = self.pre_es_combo.currentText(); km = self.pre_km_combo.currentText(); mm = self.pre_mm_combo.currentText()
+        vol = self.pre_vol.text(); vel = self.pre_vel.text(); tr = self.pre_trans.currentText(); ch = self.pre_chan.text()
+        data = f"{root},{bs},{es},{km},{mm},{vol},{vel},{tr},{ch},0"
+        self.pre_res_box.setText(f"P{self.pre_id_edit.text()}:{self.pre_name_edit.text()}:{data}")
 
     def copy_preset_result(self):
         QApplication.clipboard().setText(self.pre_res_box.toPlainText())
         self.btn_copy_pre.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_pre.setText("COPY"))
-
-    # --- TAB 5: FAVS MANAGER ---
-
-    def setup_favs_tab(self):
-        layout = QVBoxLayout(self.tab_favs)
-        layout.setContentsMargins(25, 10, 25, 15)
-        layout.setSpacing(5)
-        
-        layout.addWidget(QLabel("FAVOURITES MANAGER", styleSheet="color: #2ecc71; font-weight: bold; font-size: 14px;"))
-        layout.addWidget(QLabel("Assign a Preset to each of the 25 physical keys:", styleSheet="color: #8b949e; font-size: 10px;"))
-        
-        grid_frame = QFrame()
-        grid_frame.setStyleSheet("background-color: #161b22; border-radius: 4px; border: 1px solid #30363d;")
-        grid_lay = QGridLayout(grid_frame)
-        grid_lay.setSpacing(10)
-        
-        # Matrix Setup
-        for i in range(25):
-            col = i // 5
-            row = i % 5
-            vbox = QVBoxLayout()
-            lbl = QLabel(f"Key {str(i+1).zfill(2)} / Fav {str(i+1).zfill(2)}:")
-            lbl.setStyleSheet("color: #2ecc71; font-size: 9px; font-weight: bold;")
-            combo = QComboBox()
-            combo.setFixedWidth(120)
-            combo.currentIndexChanged.connect(self.update_favs_output)
-            self.fav_combos.append(combo)
-            vbox.addWidget(lbl)
-            vbox.addWidget(combo)
-            grid_lay.addLayout(vbox, row, col)
-            
-        layout.addWidget(grid_frame)
-        layout.addStretch(1)
-        
-        res_row = QHBoxLayout()
-        self.favs_res_box = QTextEdit()
-        self.favs_res_box.setObjectName("ResultBox")
-        self.favs_res_box.setReadOnly(True)
-        self.favs_res_box.setFixedHeight(80) 
-        res_row.addWidget(self.favs_res_box)
-        
-        bv = QVBoxLayout()
-        self.btn_copy_favs = QPushButton("COPY")
-        self.btn_copy_favs.setFixedHeight(30)
-        self.btn_copy_favs.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 10px;")
-        self.btn_copy_favs.clicked.connect(self.copy_favs_result)
-        
-        self.btn_save_favs = QPushButton("SAVE TO FILE")
-        self.btn_save_favs.setFixedHeight(45)
-        self.btn_save_favs.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 11px;")
-        self.btn_save_favs.clicked.connect(lambda: self.append_to_local_file("FAVS.FKB", self.favs_res_box.toPlainText(), self.btn_save_favs, None))
-        
-        bv.addWidget(self.btn_copy_favs)
-        bv.addWidget(self.btn_save_favs)
-        res_row.addLayout(bv)
-        layout.addLayout(res_row)
-
-    def update_favs_output(self):
-        lines = []
-        for combo in self.fav_combos:
-            lines.append(combo.currentText())
-        self.favs_res_box.setText("\n".join(lines))
-
-    def copy_favs_result(self):
-        QApplication.clipboard().setText(self.favs_res_box.toPlainText())
-        self.btn_copy_favs.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_favs.setText("COPY"))
-
-    def refresh_favs_dropdowns(self):
-        """Intelligent load: populates dropdowns from actual FAVS.FKB data."""
-        self.pre_scan_assets()
-        preset_list = sorted(list(self.asset_db["PRESETS_ID"]))
-        
-        # Load state from file
-        current_favs = []
-        path = os.path.join(self.sd_local_dir, "FAVS.FKB")
-        if os.path.exists(path):
-            try:
-                with open(path, 'r') as f:
-                    file_lines = f.readlines()
-                    for line in file_lines:
-                        clean = line.strip()
-                        if clean:
-                            current_favs.append(clean)
-            except:
-                pass
-
-        # Apply to UI
-        for i, combo in enumerate(self.fav_combos):
-            combo.blockSignals(True)
-            combo.clear()
-            # Combine current value from file with known presets to ensure it's displayed
-            file_val = ""
-            if i < len(current_favs):
-                file_val = current_favs[i]
-            
-            temp_list = preset_list[:]
-            if file_val and file_val not in temp_list:
-                temp_list.append(file_val)
-                temp_list.sort()
-                
-            combo.addItems(temp_list)
-            
-            if file_val:
-                combo.setCurrentText(file_val)
-            elif preset_list:
-                combo.setCurrentIndex(0)
-                    
-            combo.blockSignals(False)
-            
-        self.update_favs_output()
-
-    # --- SHARED UI ACTIONS ---
-
-    def on_tab_changed_preset_refresh(self, index):
-        if self.tabs.tabText(index) == "Preset Generator":
-            self.refresh_preset_dropdowns()
-        if self.tabs.tabText(index) == "Favs Manager":
-            self.refresh_favs_dropdowns()
 
     def refresh_preset_dropdowns(self):
         self.pre_scan_assets()
@@ -854,6 +747,129 @@ class MFKBApp(QMainWindow):
         self.pre_km_combo.clear(); self.pre_km_combo.addItems(sorted(list(self.asset_db["KEYMAPS_ID"])))
         self.pre_mm_combo.clear(); self.pre_mm_combo.addItems(sorted(list(self.asset_db["MIDIMAPS_ID"])))
         self.pre_bs_combo.setCurrentText(bs); self.pre_es_combo.setCurrentText(es); self.pre_km_combo.setCurrentText(km); self.pre_mm_combo.setCurrentText(mm)
+
+    # --- TAB 5: FAVS MANAGER ---
+
+    def setup_favs_tab(self):
+        layout = QVBoxLayout(self.tab_favs); layout.setContentsMargins(25, 10, 25, 15); layout.setSpacing(5)
+        layout.addWidget(QLabel("FAVOURITES MANAGER", styleSheet="color: #2ecc71; font-weight: bold; font-size: 14px;"))
+        layout.addWidget(QLabel("Assign a Preset to each of the 25 physical keys:", styleSheet="color: #8b949e; font-size: 10px;"))
+        grid_frame = QFrame(); grid_frame.setStyleSheet("background-color: #161b22; border-radius: 4px; border: 1px solid #30363d;"); gl = QGridLayout(grid_frame); gl.setSpacing(10)
+        for i in range(25):
+            col = i // 5; row = i % 5; vbox = QVBoxLayout(); lbl = QLabel(f"Key {str(i+1).zfill(2)} / Fav {str(i+1).zfill(2)}:"); lbl.setStyleSheet("color: #2ecc71; font-size: 9px; font-weight: bold;")
+            combo = QComboBox(); combo.setFixedWidth(120); combo.currentIndexChanged.connect(self.update_favs_output); self.fav_combos.append(combo); vbox.addWidget(lbl); vbox.addWidget(combo); gl.addLayout(vbox, row, col)
+        layout.addWidget(grid_frame); layout.addStretch(1)
+        res_row = QHBoxLayout(); self.favs_res_box = QTextEdit(); self.favs_res_box.setObjectName("ResultBox"); self.favs_res_box.setReadOnly(True); self.favs_res_box.setFixedHeight(80); res_row.addWidget(self.favs_res_box)
+        bv = QVBoxLayout(); self.btn_copy_favs = QPushButton("COPY"); self.btn_copy_favs.setFixedHeight(30); self.btn_copy_favs.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 10px;"); self.btn_copy_favs.clicked.connect(self.copy_favs_result)
+        self.btn_save_favs = QPushButton("SAVE TO FILE"); self.btn_save_favs.setFixedHeight(45); self.btn_save_favs.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 11px;"); self.btn_save_favs.clicked.connect(lambda: self.append_to_local_file("FAVS.FKB", self.favs_res_box.toPlainText(), self.btn_save_favs, None))
+        bv.addWidget(self.btn_copy_favs); bv.addWidget(self.btn_save_favs); res_row.addLayout(bv); layout.addLayout(res_row)
+
+    def update_favs_output(self):
+        lines = []
+        for combo in self.fav_combos: lines.append(combo.currentText())
+        self.favs_res_box.setText("\n".join(lines))
+
+    def copy_favs_result(self):
+        QApplication.clipboard().setText(self.favs_res_box.toPlainText())
+        self.btn_copy_favs.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_favs.setText("COPY"))
+
+    def refresh_favs_dropdowns(self):
+        self.pre_scan_assets(); preset_list = sorted(list(self.asset_db["PRESETS_ID"])); current_favs = []
+        path = os.path.join(self.sd_local_dir, "FAVS.FKB")
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    for line in f:
+                        clean = line.strip()
+                        if clean and not clean.startswith("#"): current_favs.append(clean)
+            except: pass
+        for i, combo in enumerate(self.fav_combos):
+            combo.blockSignals(True); combo.clear()
+            file_val = current_favs[i] if i < len(current_favs) else ""
+            temp_list = preset_list[:]
+            if file_val and file_val not in temp_list: temp_list.append(file_val); temp_list.sort()
+            combo.addItems(temp_list)
+            if file_val: combo.setCurrentText(file_val)
+            elif preset_list: combo.setCurrentIndex(0)
+            combo.blockSignals(False)
+        self.update_favs_output()
+
+    # --- TAB 6: LIVE MODE MANAGER ---
+
+    def setup_live_mode_tab(self):
+        layout = QVBoxLayout(self.tab_live); layout.setContentsMargins(25, 10, 25, 15); layout.setSpacing(10)
+        layout.addWidget(QLabel("LIVE MODE MAPPING", styleSheet="color: #2ecc71; font-weight: bold; font-size: 14px;"))
+        layout.addWidget(QLabel("Upper Register (Chromatic C to C):", styleSheet="color: #8b949e; font-size: 10px;"))
+        notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B", "C"]
+        labels_hbox = QHBoxLayout()
+        for note in notes:
+            lbl = QLabel(note); lbl.setFixedWidth(65); lbl.setAlignment(Qt.AlignCenter); lbl.setStyleSheet("color: #2ecc71; font-weight: bold;")
+            labels_hbox.addWidget(lbl)
+        labels_hbox.addStretch(); layout.addLayout(labels_hbox)
+        
+        def create_chord_row(label_text, combo_list, label_list):
+            layout.addWidget(QLabel(label_text, styleSheet="color: #FFF; font-size: 9px; font-weight: bold;"))
+            hbox = QHBoxLayout()
+            for i in range(13):
+                vbox = QVBoxLayout(); vbox.setSpacing(2); combo = QComboBox(); combo.setFixedWidth(65); combo.currentIndexChanged.connect(self.update_live_mode_output); combo_list.append(combo)
+                lbl_name = QLabel("-"); lbl_name.setFixedWidth(65); lbl_name.setAlignment(Qt.AlignCenter); lbl_name.setStyleSheet("color: #8b949e; font-size: 8px;")
+                label_list.append(lbl_name); vbox.addWidget(combo); vbox.addWidget(lbl_name); hbox.addLayout(vbox)
+            hbox.addStretch(); layout.addLayout(hbox)
+
+        create_chord_row("BASIC CHORDS (Pedal 2 OFF):", self.live_combos_basic, self.live_labels_basic)
+        create_chord_row("ENHANCED CHORDS (Pedal 2 ON):", self.live_combos_enhanced, self.live_labels_enhanced)
+        
+        layout.addStretch(1)
+        res_row = QHBoxLayout(); self.live_res_box = QTextEdit(); self.live_res_box.setObjectName("ResultBox"); self.live_res_box.setReadOnly(True); self.live_res_box.setFixedHeight(60); res_row.addWidget(self.live_res_box)
+        bv = QVBoxLayout(); self.btn_copy_live = QPushButton("COPY"); self.btn_copy_live.setFixedHeight(25); self.btn_copy_live.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 10px;"); self.btn_copy_live.clicked.connect(self.copy_live_mode_result)
+        self.btn_save_live = QPushButton("SAVE TO FILE"); self.btn_save_live.setFixedHeight(35); self.btn_save_live.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 11px;"); self.btn_save_live.clicked.connect(lambda: self.append_to_local_file("LIVEMAP.FKB", self.live_res_box.toPlainText(), self.btn_save_live, None))
+        bv.addWidget(self.btn_copy_live); bv.addWidget(self.btn_save_live); res_row.addLayout(bv); layout.addLayout(res_row)
+
+    def update_live_mode_output(self):
+        l1_ids, l2_ids = [], []
+        for i, combo in enumerate(self.live_combos_basic):
+            cid = combo.currentText().split(" | ")[0]; l1_ids.append(cid); self.live_labels_basic[i].setText(self.chord_map.get(cid, "-"))
+        for i, combo in enumerate(self.live_combos_enhanced):
+            cid = combo.currentText().split(" | ")[0]; l2_ids.append(cid); self.live_labels_enhanced[i].setText(self.chord_map.get(cid, "-"))
+        self.live_res_box.setText(f"{','.join(l1_ids)}\n{','.join(l2_ids)}")
+
+    def copy_live_mode_result(self):
+        QApplication.clipboard().setText(self.live_res_box.toPlainText())
+        self.btn_copy_live.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_live.setText("COPY"))
+
+    def refresh_live_mode_dropdowns(self):
+        self.pre_scan_assets(); chord_list = sorted(list(self.asset_db["CHORDS_ID"])); data_lines = []
+        path = os.path.join(self.sd_local_dir, "LIVEMAP.FKB")
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    for line in f:
+                        clean = line.strip()
+                        if clean and not clean.startswith("#"): data_lines.append(clean)
+            except: pass
+        l1 = data_lines[0].split(",") if len(data_lines) >= 1 else []
+        l2 = data_lines[1].split(",") if len(data_lines) >= 2 else []
+        def sync_row(combos, data):
+            for i, combo in enumerate(combos):
+                combo.blockSignals(True); combo.clear()
+                file_id = data[i] if i < len(data) else ""
+                for cid in chord_list: combo.addItem(f"{cid} | {self.chord_map.get(cid, '???')}")
+                found = False
+                for idx in range(combo.count()):
+                    if combo.itemText(idx).startswith(file_id + " |"): combo.setCurrentIndex(idx); found = True; break
+                if not found and file_id: combo.addItem(f"{file_id} | Missing"); combo.setCurrentText(f"{file_id} | Missing")
+                elif not found and chord_list: combo.setCurrentIndex(0)
+                combo.blockSignals(False)
+        sync_row(self.live_combos_basic, l1); sync_row(self.live_combos_enhanced, l2)
+        self.update_live_mode_output()
+
+    # --- SHARED UI EVENTS ---
+
+    def on_tab_changed_preset_refresh(self, index):
+        tname = self.tabs.tabText(index)
+        if tname == "Preset Generator": self.refresh_preset_dropdowns()
+        elif tname == "Favs Manager": self.refresh_favs_dropdowns()
+        elif tname == "Live Mode": self.refresh_live_mode_dropdowns()
 
     def on_midi_grid_click(self, value):
         if self.active_km_index < 25:
@@ -901,7 +917,7 @@ class MFKBApp(QMainWindow):
         QApplication.clipboard().setText(self.chord_res_box.toPlainText())
         self.btn_copy_chord.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_chord.setText("COPY"))
 
-    # --- SD MANAGER & CORE ---
+    # --- SD MANAGER & EDITOR ---
 
     def setup_sd_tab(self):
         layout = QVBoxLayout(self.tab_sd); layout.setContentsMargins(20, 20, 20, 20)
@@ -1002,6 +1018,7 @@ class MFKBApp(QMainWindow):
 
     def pre_scan_assets(self):
         for k in self.asset_db: self.asset_db[k].clear()
+        self.chord_map = {}
         if not os.path.exists(self.sd_local_dir): return
         for fn in os.listdir(self.sd_local_dir):
             up = fn.upper(); pth = os.path.join(self.sd_local_dir, fn)
@@ -1012,8 +1029,10 @@ class MFKBApp(QMainWindow):
                         if not line or line.startswith("#"): continue
                         pts = line.split(":")
                         if len(pts) > 1:
-                            id_v = pts[0].strip(); lbl_v = pts[1].strip()
-                            if up == "CHORDS.FKB": self.asset_db["CHORDS_ID"].add(id_v); self.asset_db["CHORDS_NAME"].add(lbl_v)
+                            id_v, lbl_v = pts[0].strip(), pts[1].strip()
+                            if up == "CHORDS.FKB":
+                                self.asset_db["CHORDS_ID"].add(id_v); self.asset_db["CHORDS_NAME"].add(lbl_v)
+                                self.chord_map[id_v] = lbl_v
                             elif up == "SCALES.FKB": self.asset_db["SCALES_ID"].add(id_v); self.asset_db["SCALES_NAME"].add(lbl_v)
                             elif up == "PRESETS.FKB": self.asset_db["PRESETS_ID"].add(id_v); self.asset_db["PRESETS_NAME"].add(lbl_v)
                             elif up == "KEYMAPS.FKB": self.asset_db["KEYMAPS_ID"].add(id_v); self.asset_db["KEYMAPS_NAME"].add(lbl_v)
@@ -1065,7 +1084,7 @@ class MFKBApp(QMainWindow):
             dlg = FileEditor(item.text(), text, self)
             if dlg.exec_() == QDialog.Accepted:
                 with open(path, 'w') as f: f.write(dlg.editor.toPlainText())
-                self.sd_console.append(f"Updated: {item.text()}"); self.refresh_local_sd_list()
+                self.sd_console.append(f"Updated: {item.text()} Supreme."); self.refresh_local_sd_list()
         except Exception as e: self.sd_console.append(f"Error: {e}")
 
     def refresh_local_sd_list(self):
@@ -1074,7 +1093,7 @@ class MFKBApp(QMainWindow):
             files = sorted([f for f in os.listdir(self.sd_local_dir) if f.lower().endswith(".fkb")])
             self.list_local.addItems(files)
 
-    # --- TAB: FIRMWARE ---
+    # --- FIRMWARE UPLOADER ---
 
     def setup_uploader_tab(self):
         layout = QVBoxLayout(self.tab_flash); layout.setContentsMargins(30, 20, 30, 20)

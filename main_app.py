@@ -12,13 +12,13 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt5.QtCore import Qt, QTimer, QProcess, QEvent
 from PyQt5.QtGui import QTextCursor, QIntValidator
 
-# --- PATH CONFIGURATION FOR COMPILED VERSION ---
+# --- PATH CONFIGURATION ---
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# --- THE STYLESHEET (Golden v2.1.11) ---
+# --- THE STYLESHEET (Golden v2.1.12) ---
 STYLE_SHEET = """
 QMainWindow, QDialog { 
     background-color: #0a0a0a; 
@@ -180,7 +180,6 @@ class FileEditor(QDialog):
         
         main_layout = QVBoxLayout(self)
         
-        # Search Layout
         search_layout = QHBoxLayout()
         search_layout.addWidget(QLabel("FIND:"))
         self.search_field = QLineEdit()
@@ -196,7 +195,6 @@ class FileEditor(QDialog):
         search_layout.addWidget(self.btn_find)
         main_layout.addLayout(search_layout)
         
-        # Gutter and Editor Area
         editor_hbox = QHBoxLayout()
         self.line_gutter = QTextEdit()
         self.line_gutter.setObjectName("LineGutter")
@@ -211,7 +209,6 @@ class FileEditor(QDialog):
         self.editor.setAcceptRichText(False)
         self.editor.setLineWrapMode(QTextEdit.NoWrap)
         
-        # Connect scrolling
         self.editor.verticalScrollBar().valueChanged.connect(self.sync_scroll)
         self.editor.textChanged.connect(self.update_line_counts)
         
@@ -219,7 +216,6 @@ class FileEditor(QDialog):
         editor_hbox.addWidget(self.editor)
         main_layout.addLayout(editor_hbox)
         
-        # Footer
         footer = QHBoxLayout()
         self.btn_val = QPushButton("VALIDATE FORMAT")
         self.btn_val.setObjectName("SD_Btn")
@@ -256,7 +252,6 @@ class FileEditor(QDialog):
         query = self.search_field.text()
         if not query:
             return
-        
         found = self.editor.find(query)
         if not found:
             cursor = self.editor.textCursor()
@@ -269,55 +264,42 @@ class FileEditor(QDialog):
         text_content = self.editor.toPlainText()
         lines = text_content.split('\n')
         errors = []
-        
         for i, line in enumerate(lines):
             line = line.strip()
-            if not line:
+            if not line or line.startswith("#"):
                 continue
-            if line.startswith("#"):
-                continue
-            
             res = self.parent_app.validate_fkb_line(self.filename.upper(), line, deep=True)
             if res is not True:
                 errors.append(f"Line {i+1}: {res}")
-        
         if len(errors) == 0:
             self.editor.append("\n# [SUCCESS] Content Validated.")
         else:
             self.editor.append("\n# [FAILED] Format Errors detected:")
             for err in errors:
                 self.editor.append(f"# {err}")
-        
         self.editor.moveCursor(QTextCursor.End)
 
 
 class MFKBApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        # INITIALIZE CORE CLASS ATTRIBUTES IMMEDIATELY
         self.current_port = None
         self.ser = None 
         
-        # Application State
         self.note_masks = [0] * 25 
         self.selected_notes = set() 
         self.chan_buttons = []
         self.note_buttons = []
-        
-        # Pointer States
         self.keymap_inputs = []
         self.active_km_index = 0
         self.chord_inputs = []
         self.active_chord_index = 0
         self.fav_combos = [] 
-        
-        # Live Mode UI Tracking
         self.live_combos_basic = [] 
         self.live_combos_enhanced = []
         self.live_labels_basic = []
         self.live_labels_enhanced = []
         
-        # Deep Validation Database (IDs and Names)
         self.asset_db = {
             "CHORDS_ID": set(), "CHORDS_NAME": set(),
             "SCALES_ID": set(), "SCALES_NAME": set(),
@@ -325,18 +307,15 @@ class MFKBApp(QMainWindow):
             "KEYMAPS_ID": set(), "KEYMAPS_NAME": set(),
             "MIDIMAPS_ID": set(), "MIDIMAPS_NAME": set()
         }
-        self.chord_map = {} # Internal ID -> Name mapping
+        self.chord_map = {}
         
-        # Paths
-        self.tools_path = os.path.join(BASE_DIR, "tools", "avrdude")
-        self.conf_path = os.path.join(BASE_DIR, "tools", "avrdude_linux.conf")
-        self.firmware_dir = os.path.join(BASE_DIR, "firmware")
         self.sd_local_dir = os.path.join(BASE_DIR, "sdcard")
         self.sd_backup_dir = os.path.join(BASE_DIR, "sdcard", "backups")
+        self.firmware_dir = os.path.join(BASE_DIR, "firmware")
+        self.tools_path = os.path.join(BASE_DIR, "tools", "avrdude")
+        self.conf_path = os.path.join(BASE_DIR, "tools", "avrdude_linux.conf")
         
-        # Create Dirs
-        target_paths = [self.sd_local_dir, self.sd_backup_dir, self.firmware_dir]
-        for path in target_paths:
+        for path in [self.sd_local_dir, self.sd_backup_dir, self.firmware_dir]:
             if not os.path.exists(path):
                 os.makedirs(path)
         
@@ -345,20 +324,16 @@ class MFKBApp(QMainWindow):
             {'vid': 0x2341, 'pid': 0x0042, 'name': 'Mega 2560 (Elegoo/Official)'}
         ]
         
-        # Process Handling
         self.process = QProcess(self)
         self.process.readyReadStandardError.connect(self.on_console_output)
         self.process.readyReadStandardOutput.connect(self.on_console_output)
         self.process.finished.connect(self.on_flash_finished)
 
-        # Verification Debouncer
         self.verify_timer = QTimer()
         self.verify_timer.setSingleShot(True)
         self.verify_timer.timeout.connect(self.perform_live_verification)
 
         self.init_ui()
-        
-        # Auto-detect Timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.auto_detect_hardware)
         self.timer.start(2000)
@@ -367,61 +342,47 @@ class MFKBApp(QMainWindow):
         self.refresh_local_sd_list()
 
     def init_ui(self):
-        self.setWindowTitle("MFKB Companion App v2.1.11")
+        self.setWindowTitle("MFKB Companion App v2.1.12")
         self.setFixedSize(1000, 720) 
         self.setStyleSheet(STYLE_SHEET)
-        
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 1. Connection Header
         self.conn_bar = QFrame()
         self.conn_bar.setObjectName("ConnBar")
         self.conn_bar.setFixedHeight(40)
         conn_lay = QHBoxLayout(self.conn_bar)
-        
         self.status_dot = QLabel("●")
         self.status_dot.setStyleSheet("color: #e74c3c; font-size: 14px; margin-left: 10px;")
         conn_lay.addWidget(self.status_dot)
-        
         self.status_text = QLabel("Scanning Hardware Interface...")
         self.status_text.setStyleSheet("color: #8b949e; font-size: 10px;")
         conn_lay.addWidget(self.status_text)
-        
         conn_lay.addStretch()
         main_layout.addWidget(self.conn_bar)
 
-        # 2. Main Tabs
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs)
         
         self.tab_midimap = QWidget()
         self.tabs.addTab(self.tab_midimap, "MidiMap Generator")
-        
         self.tab_keymap = QWidget()
         self.tabs.addTab(self.tab_keymap, "KeyMap Generator")
-        
         self.tab_chord = QWidget()
         self.tabs.addTab(self.tab_chord, "Chord Generator")
-
         self.tab_preset = QWidget()
         self.tabs.addTab(self.tab_preset, "Preset Generator")
-
         self.tab_favs = QWidget()
         self.tabs.addTab(self.tab_favs, "Favs Manager")
-
         self.tab_live = QWidget()
         self.tabs.addTab(self.tab_live, "Live Mode")
-        
         self.tab_sd = QWidget()
         self.tabs.addTab(self.tab_sd, "SD Card Manager")
-        
         self.tab_flash = QWidget()
         self.tabs.addTab(self.tab_flash, "Firmware Uploader")
 
-        # 3. Setup Contents
         self.setup_bitmasker_tab()
         self.setup_keymap_tab()
         self.setup_chord_tab()
@@ -431,48 +392,60 @@ class MFKBApp(QMainWindow):
         self.setup_sd_tab()
         self.setup_uploader_tab()
 
-    # --- SHARED INTEGRITY & SAVE SYSTEM ---
+    # --- SERIAL ---
+
+    def get_serial(self):
+        if self.ser and self.ser.is_open:
+            return self.ser
+        if not self.current_port:
+            return None
+        try:
+            self.ser = serial.Serial(self.current_port, 115200, timeout=2)
+            self.sd_console.append("Link Established. Waiting for Mega boot...")
+            time.sleep(3) 
+            self.ser.reset_input_buffer()
+            return self.ser
+        except Exception as e:
+            self.sd_console.append(f"Connection Error: {e}")
+            return None
+
+    def close_serial(self):
+        if self.ser and self.ser.is_open:
+            self.ser.close()
+        self.ser = None
+
+    # --- VERIFICATION ---
 
     def trigger_verification(self):
         self.verify_timer.start(500)
 
     def perform_live_verification(self):
-        """Silently scans local files and checks OR condition for ID/Name."""
         self.pre_scan_assets()
         current_idx = self.tabs.currentIndex()
         tab_name = self.tabs.tabText(current_idx)
-
         if tab_name == "MidiMap Generator":
             raw_id = self.map_id_edit.text().strip()
             norm_id = "MM" + str(int(raw_id)) if raw_id.isdigit() else "MM" + raw_id
-            name_val = self.map_name_edit.text().strip()
-            self.apply_live_feedback(self.midimap_status, norm_id, name_val, "MIDIMAPS_ID", "MIDIMAPS_NAME")
-
+            self.apply_live_feedback(self.midimap_status, norm_id, self.map_name_edit.text().strip(), "MIDIMAPS_ID", "MIDIMAPS_NAME")
         elif tab_name == "KeyMap Generator":
             raw_id = self.km_id_edit.text().strip()
             norm_id = "KM" + str(int(raw_id)) if raw_id.isdigit() else "KM" + raw_id
-            name_val = self.km_name_edit.text().strip()
-            self.apply_live_feedback(self.keymap_status, norm_id, name_val, "KEYMAPS_ID", "KEYMAPS_NAME")
-
+            self.apply_live_feedback(self.keymap_status, norm_id, self.km_name_edit.text().strip(), "KEYMAPS_ID", "KEYMAPS_NAME")
         elif tab_name == "Chord Generator":
             raw_id = self.chord_id_edit.text().strip()
             norm_id = "C" + str(int(raw_id)) if raw_id.isdigit() else "C" + raw_id
-            name_val = self.chord_name_edit.text().strip()
-            self.apply_live_feedback(self.chord_status, norm_id, name_val, "CHORDS_ID", "CHORDS_NAME")
-
+            self.apply_live_feedback(self.chord_status, norm_id, self.chord_name_edit.text().strip(), "CHORDS_ID", "CHORDS_NAME")
         elif tab_name == "Preset Generator":
             raw_id = self.pre_id_edit.text().strip()
             norm_id = "P" + str(int(raw_id)) if raw_id.isdigit() else "P" + raw_id
-            name_val = self.pre_name_edit.text().strip()
-            self.apply_live_feedback(self.preset_status, norm_id, name_val, "PRESETS_ID", "PRESETS_NAME")
+            self.apply_live_feedback(self.preset_status, norm_id, self.pre_name_edit.text().strip(), "PRESETS_ID", "PRESETS_NAME")
 
     def apply_live_feedback(self, label_obj, id_val, name_val, id_key, name_key):
         if not id_val and not name_val:
             label_obj.setText("")
             return
-        is_id_taken = id_val in self.asset_db[id_key]
-        is_name_taken = name_val in self.asset_db[name_key]
-        if is_id_taken or is_name_taken:
+        taken = (id_val in self.asset_db[id_key]) or (name_val in self.asset_db[name_key])
+        if taken:
             label_obj.setText("⚠ Warning: Duplicate ID or Name detected in local file")
             label_obj.setStyleSheet("color: #e74c3c; font-size: 9px; font-weight: bold;")
         else:
@@ -480,103 +453,72 @@ class MFKBApp(QMainWindow):
             label_obj.setStyleSheet("color: #2ecc71; font-size: 9px; font-weight: bold;")
 
     def append_to_local_file(self, filename, line_data, button_ref, status_label):
-        """Standard file appender with pre-check and post-reset logic."""
         if status_label:
             if "Warning" in status_label.text():
-                q = QMessageBox.question(self, "Conflict Detected", 
-                                         "A duplicate entry was found. Proceed and append anyway?", 
-                                         QMessageBox.Yes | QMessageBox.No)
-                if q == QMessageBox.No:
-                    return
-
+                res = QMessageBox.question(self, "Conflict", "Overwrite detected. Proceed?", QMessageBox.Yes | QMessageBox.No)
+                if res == QMessageBox.No: return
         path = os.path.join(self.sd_local_dir, filename)
         try:
-            # Overwrite logic for FAVS and LIVEMAP, append for others
             mode = 'w' if filename in ["FAVS.FKB", "LIVEMAP.FKB"] else 'a+'
-            
             with open(path, mode) as f:
-                if mode == 'a+':
-                    f.seek(0, os.SEEK_END)
-                    if f.tell() > 0:
-                        f.seek(f.tell() - 1)
-                        if f.read(1) != '\n':
-                            f.write('\n')
+                if mode == 'a+' and f.tell() > 0:
+                    f.seek(f.tell() - 1)
+                    if f.read(1) != '\n': f.write('\n')
                 f.write(line_data.strip() + '\n')
-            
             button_ref.setText("ADDED!" if mode == 'a+' else "SAVED!")
             button_ref.setEnabled(False)
             QTimer.singleShot(1500, lambda: self.reset_generator_tab(button_ref))
         except Exception as e:
-            QMessageBox.critical(self, "Save Failed", f"File error on {filename}:\n{e}")
+            QMessageBox.critical(self, "Error", str(e))
 
     def reset_generator_tab(self, btn):
-        # Determine button label based on tab name
         current_idx = self.tabs.currentIndex()
         tab_name = self.tabs.tabText(current_idx)
-        
-        if "Favs" in tab_name or "Live" in tab_name:
-            btn.setText("SAVE TO FILE")
-        else:
-            btn.setText("ADD TO FILE")
-            
+        btn.setText("SAVE TO FILE" if "Favs" in tab_name or "Live" in tab_name else "ADD TO FILE")
         btn.setEnabled(True)
         self.pre_scan_assets()
-        
-        if tab_name == "MidiMap Generator":
-            self.clear_map()
-        elif tab_name == "KeyMap Generator":
-            self.reset_keymap_data()
-        elif tab_name == "Chord Generator":
-            self.reset_chord_data()
-        elif tab_name == "Preset Generator":
-            self.reset_preset_data()
+        if tab_name == "MidiMap Generator": self.clear_map()
+        elif tab_name == "KeyMap Generator": self.reset_keymap_data()
+        elif tab_name == "Chord Generator": self.reset_chord_data()
+        elif tab_name == "Preset Generator": self.reset_preset_data()
 
-    # --- TAB 1: BITMASKER ---
+    # --- TABS ---
 
     def setup_bitmasker_tab(self):
-        layout = QVBoxLayout(self.tab_midimap)
-        layout.setContentsMargins(25, 10, 25, 15)
-        layout.setSpacing(5)
+        layout = QVBoxLayout(self.tab_midimap); layout.setContentsMargins(25, 10, 25, 15); layout.setSpacing(5)
         layout.addWidget(QLabel("STEP 1 : ID & NAME", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
-        inp = QHBoxLayout()
-        self.map_id_edit = QLineEdit("1"); self.map_id_edit.setFixedWidth(45)
+        inp = QHBoxLayout(); self.map_id_edit = QLineEdit("1"); self.map_id_edit.setFixedWidth(45)
         self.map_id_edit.textChanged.connect(self.update_result_string); self.map_id_edit.textChanged.connect(self.trigger_verification)
-        self.map_name_edit = QLineEdit("Default_Map"); self.map_name_edit.setFixedWidth(200)
+        self.map_name_edit = QLineEdit("Default"); self.map_name_edit.setFixedWidth(200)
         self.map_name_edit.textChanged.connect(self.update_result_string); self.map_name_edit.textChanged.connect(self.trigger_verification)
-        inp.addWidget(QLabel("ID:")); inp.addWidget(self.map_id_edit); inp.addWidget(QLabel("NAME:")); inp.addWidget(self.map_name_edit); inp.addStretch()
-        layout.addLayout(inp)
+        inp.addWidget(QLabel("ID:")); inp.addWidget(self.map_id_edit); inp.addWidget(QLabel("NAME:")); inp.addWidget(self.map_name_edit); inp.addStretch(); layout.addLayout(inp)
         self.midimap_status = QLabel(""); layout.addWidget(self.midimap_status)
         nh = QHBoxLayout(); nh.addWidget(QLabel("STEP 2 : SELECT NOTES", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
         self.note_all_chk = QCheckBox("Select All"); self.note_all_chk.setStyleSheet("color: white; font-size: 10px;"); self.note_all_chk.stateChanged.connect(self.on_note_select_all); nh.addStretch(); nh.addWidget(self.note_all_chk); layout.addLayout(nh)
-        note_grid = QGridLayout(); note_grid.setSpacing(4)
+        grid = QGridLayout(); grid.setSpacing(4)
         for i in range(25):
-            btn = QPushButton(str(i+1)); btn.setObjectName("NoteBtn"); btn.setCheckable(True); btn.setFixedSize(32, 32); btn.clicked.connect(self.on_note_clicked); self.note_buttons.append(btn); note_grid.addWidget(btn, i // 13, i % 13)
-        layout.addLayout(note_grid)
-        ch = QHBoxLayout(); ch.addWidget(QLabel("STEP 3 : MAP CHANNELS", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
+            btn = QPushButton(str(i+1)); btn.setObjectName("NoteBtn"); btn.setCheckable(True); btn.setFixedSize(32, 32); btn.clicked.connect(self.on_note_clicked); self.note_buttons.append(btn); grid.addWidget(btn, i // 13, i % 13)
+        layout.addLayout(grid); ch = QHBoxLayout(); ch.addWidget(QLabel("STEP 3 : MAP CHANNELS", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
         self.chan_all_chk = QCheckBox("Select All"); self.chan_all_chk.setStyleSheet("color: white; font-size: 10px;"); self.chan_all_chk.stateChanged.connect(self.on_chan_select_all); ch.addStretch(); ch.addWidget(self.chan_all_chk); layout.addLayout(ch)
-        chan_grid = QGridLayout()
+        cgrid = QGridLayout()
         for i in range(16):
-            btn = QPushButton(str(i+1)); btn.setObjectName("ChannelBtn"); btn.setCheckable(True); btn.setFixedSize(75, 40); btn.clicked.connect(self.on_channel_clicked); self.chan_buttons.append(btn); chan_grid.addWidget(btn, i // 8, i % 8)
-        layout.addLayout(chan_grid)
-        self.btn_clear = QPushButton("CLEAR CURRENT MAP"); self.btn_clear.setObjectName("UtilityBtn"); self.btn_clear.setFixedHeight(30); self.btn_clear.setStyleSheet("color: #ff4444; font-size: 10px;"); self.btn_clear.clicked.connect(self.clear_map); layout.addWidget(self.btn_clear); layout.addStretch()
-        res_row = QHBoxLayout(); self.result_box = QTextEdit(); self.result_box.setObjectName("ResultBox"); self.result_box.setReadOnly(True); self.result_box.setFixedHeight(60); res_row.addWidget(self.result_box)
+            btn = QPushButton(str(i+1)); btn.setObjectName("ChannelBtn"); btn.setCheckable(True); btn.setFixedSize(75, 40); btn.clicked.connect(self.on_channel_clicked); self.chan_buttons.append(btn); cgrid.addWidget(btn, i // 8, i % 8)
+        layout.addLayout(cgrid); self.btn_clear = QPushButton("CLEAR MAP"); self.btn_clear.setObjectName("UtilityBtn"); self.btn_clear.setFixedHeight(30); self.btn_clear.setStyleSheet("color: #ff4444; font-size: 10px;"); self.btn_clear.clicked.connect(self.clear_map); layout.addWidget(self.btn_clear); layout.addStretch()
+        res = QHBoxLayout(); self.result_box = QTextEdit(); self.result_box.setObjectName("ResultBox"); self.result_box.setReadOnly(True); self.result_box.setFixedHeight(65); res.addWidget(self.result_box)
         bv = QVBoxLayout(); self.btn_copy = QPushButton("COPY"); self.btn_copy.setFixedHeight(25); self.btn_copy.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold;"); self.btn_copy.clicked.connect(self.copy_result)
-        self.btn_add_mm = QPushButton("ADD TO FILE"); self.btn_add_mm.setFixedHeight(35); self.btn_add_mm.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 10px;"); self.btn_add_mm.clicked.connect(lambda: self.append_to_local_file("MIDIMAPS.FKB", self.result_box.toPlainText(), self.btn_add_mm, self.midimap_status))
-        bv.addWidget(self.btn_copy); bv.addWidget(self.btn_add_mm); res_row.addLayout(bv); layout.addLayout(res_row); self.update_result_string()
+        self.btn_add_mm = QPushButton("ADD TO FILE"); self.btn_add_mm.setFixedHeight(35); self.btn_add_mm.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 11px;"); self.btn_add_mm.clicked.connect(lambda: self.append_to_local_file("MIDIMAPS.FKB", self.result_box.toPlainText(), self.btn_add_mm, self.midimap_status))
+        bv.addWidget(self.btn_copy); bv.addWidget(self.btn_add_mm); res.addLayout(bv); layout.addLayout(res); self.update_result_string()
 
     def on_note_clicked(self):
-        btn = self.sender()
-        idx = int(btn.text()) - 1
+        btn = self.sender(); idx = int(btn.text()) - 1
         if not (QApplication.keyboardModifiers() == Qt.ControlModifier):
-            target_mask = self.note_masks[idx]
-            self.selected_notes.clear()
-            if target_mask > 0:
+            target = self.note_masks[idx]; self.selected_notes.clear()
+            if target > 0:
                 for i, m in enumerate(self.note_masks):
-                    if m == target_mask: self.selected_notes.add(i)
-            else:
-                self.selected_notes.add(idx)
+                    if m == target: self.selected_notes.add(i)
+            else: self.selected_notes.add(idx)
             for i, b in enumerate(self.note_buttons): b.setChecked(i in self.selected_notes)
-            self.sync_channels_to_mask(target_mask)
+            self.sync_channels_to_mask(target)
         else:
             if btn.isChecked(): self.selected_notes.add(idx)
             else: self.selected_notes.discard(idx)
@@ -586,8 +528,7 @@ class MFKBApp(QMainWindow):
         for i, btn in enumerate(self.chan_buttons):
             if btn.isChecked(): mask |= (1 << i)
         for idx in self.selected_notes:
-            self.note_masks[idx] = mask
-            btn = self.note_buttons[idx]
+            self.note_masks[idx] = mask; btn = self.note_buttons[idx]
             btn.setProperty("locked", "true" if mask > 0 else "false")
             btn.style().unpolish(btn); btn.style().polish(btn)
         self.update_result_string()
@@ -597,21 +538,19 @@ class MFKBApp(QMainWindow):
             btn.blockSignals(True); btn.setChecked(bool(mask & (1 << i))); btn.blockSignals(False)
 
     def on_note_select_all(self, state):
-        is_all = (state == Qt.Checked)
+        on = (state == Qt.Checked)
         for i, btn in enumerate(self.note_buttons):
-            btn.setChecked(is_all)
-            if is_all: self.selected_notes.add(i)
+            btn.setChecked(on)
+            if on: self.selected_notes.add(i)
             else: self.selected_notes.discard(i)
 
     def on_chan_select_all(self, state):
-        is_all = (state == Qt.Checked)
-        for btn in self.chan_buttons: btn.setChecked(is_all)
+        on = (state == Qt.Checked)
+        for btn in self.chan_buttons: btn.setChecked(on)
         self.on_channel_clicked()
 
     def update_result_string(self):
-        mid = self.map_id_edit.text()
-        hex_data = ",".join([f"{m:04X}" for m in self.note_masks])
-        self.result_box.setText(f"MM{mid}:{self.map_name_edit.text()}:{hex_data}")
+        self.result_box.setText(f"MM{self.map_id_edit.text()}:{self.map_name_edit.text()}:{','.join([f'{m:04X}' for m in self.note_masks])}")
 
     def copy_result(self):
         QApplication.clipboard().setText(self.result_box.toPlainText())
@@ -619,13 +558,10 @@ class MFKBApp(QMainWindow):
 
     def clear_map(self):
         self.note_masks = [0] * 25; self.selected_notes.clear(); self.map_id_edit.setText("1"); self.map_name_edit.setText("NewMap")
-        for btn in self.note_buttons:
-            btn.blockSignals(True); btn.setChecked(False); btn.setProperty("locked", "false")
-            btn.style().unpolish(btn); btn.style().polish(btn); btn.blockSignals(False)
-        for btn in self.chan_buttons: btn.blockSignals(True); btn.setChecked(False); btn.blockSignals(False)
+        for b in self.note_buttons: 
+            b.blockSignals(True); b.setChecked(False); b.setProperty("locked", "false"); b.style().unpolish(b); b.style().polish(b); b.blockSignals(False)
+        for b in self.chan_buttons: b.blockSignals(True); b.setChecked(False); b.blockSignals(False)
         self.note_all_chk.setChecked(False); self.chan_all_chk.setChecked(False); self.update_result_string()
-
-    # --- TAB 2: KEYMAP GENERATOR ---
 
     def setup_keymap_tab(self):
         layout = QVBoxLayout(self.tab_keymap); layout.setContentsMargins(25, 10, 25, 15); layout.setSpacing(5)
@@ -635,36 +571,41 @@ class MFKBApp(QMainWindow):
         h1.addWidget(QLabel("KM ID:")); h1.addWidget(self.km_id_edit); h1.addWidget(QLabel("NAME:")); h1.addWidget(self.km_name_edit); h1.addStretch(); layout.addLayout(h1)
         self.keymap_status = QLabel(""); layout.addWidget(self.keymap_status); layout.addWidget(QLabel("STEP 2 : SELECT A MIDI NOTE", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
         grid_frame = QFrame(); grid_frame.setStyleSheet("background-color: #161b22; border-radius: 4px; border: 1px solid #30363d;"); gl = QGridLayout(grid_frame); gl.setSpacing(2); gl.setColumnMinimumWidth(0, 40)
-        midi_notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-        for i, n in enumerate(midi_notes):
-            lbl = QLabel(n); lbl.setAlignment(Qt.AlignCenter); lbl.setStyleSheet("color: #2ecc71; font-weight: bold; font-size: 10px;"); gl.addWidget(lbl, 0, i + 1)
+        notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        for i, n in enumerate(notes):
+            lbl = QLabel(n); lbl.setAlignment(Qt.AlignCenter); lbl.setStyleSheet("color: #2ecc71; font-weight: bold; font-size: 9px;"); gl.addWidget(lbl, 0, i + 1)
         for row in range(11):
-            lbl_oct = QLabel(f"Oct {row-1}"); lbl_oct.setFixedWidth(40); lbl_oct.setStyleSheet("color: #FFF; font-size: 8px;"); gl.addWidget(lbl_oct, row + 1, 0)
+            loct = QLabel(f"Oct {row-1}"); loct.setFixedWidth(40); loct.setStyleSheet("color: #FFF; font-size: 7px;"); gl.addWidget(loct, row + 1, 0)
             for col in range(12):
                 val = row * 12 + col
                 if val <= 127:
-                    btn = QPushButton(str(val)); btn.setObjectName("MidiGridBtn"); btn.setFixedSize(28, 18); btn.clicked.connect(lambda checked, v=val: self.on_midi_grid_click(v)); gl.addWidget(btn, row + 1, col + 1)
+                    btn = QPushButton(str(val)); btn.setObjectName("MidiGridBtn"); btn.setFixedSize(28, 18); btn.clicked.connect(lambda chk, v=val: self.on_midi_grid_click(v)); gl.addWidget(btn, row + 1, col + 1)
         layout.addWidget(grid_frame); layout.addWidget(QLabel("STEP 3 : CHOOSE THE KEY", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
-        cols_hbox = QHBoxLayout(); splits = [5, 5, 5, 5, 5]; k_ptr = 0
-        for sz in splits:
+        hbox = QHBoxLayout(); k_ptr = 0
+        for sz in [5, 5, 5, 5, 5]:
             vbox = QVBoxLayout(); vbox.setSpacing(2)
             for _ in range(sz):
                 row = QHBoxLayout(); key_lbl = QLabel(f"Key {str(k_ptr + 1).zfill(2)}:"); key_lbl.setStyleSheet("color: #8b949e; font-size: 8px;"); key_lbl.setFixedWidth(35)
                 box = QLineEdit(str(60 + k_ptr)); box.setObjectName("KeyInput"); box.setFixedWidth(40); box.setValidator(QIntValidator(0, 127)); box.installEventFilter(self); box.textChanged.connect(self.update_keymap_output); self.keymap_inputs.append(box)
                 row.addWidget(key_lbl); row.addWidget(box); vbox.addLayout(row); k_ptr += 1
-            vbox.addStretch(); cols_hbox.addLayout(vbox)
-        layout.addLayout(cols_hbox)
-        res_row = QHBoxLayout(); self.km_res_box = QTextEdit(); self.km_res_box.setObjectName("ResultBox"); self.km_res_box.setFixedHeight(60); self.km_res_box.setReadOnly(True); res_row.addWidget(self.km_res_box)
+            vbox.addStretch(); hbox.addLayout(vbox)
+        layout.addLayout(hbox); res = QHBoxLayout(); self.km_res_box = QTextEdit(); self.km_res_box.setObjectName("ResultBox"); self.km_res_box.setFixedHeight(65); self.km_res_box.setReadOnly(True); res.addWidget(self.km_res_box)
         bv = QVBoxLayout(); self.btn_copy_km = QPushButton("COPY"); self.btn_copy_km.setFixedHeight(25); self.btn_copy_km.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 10px;"); self.btn_copy_km.clicked.connect(self.copy_keymap_result)
         self.btn_add_km = QPushButton("ADD TO FILE"); self.btn_add_km.setFixedHeight(35); self.btn_add_km.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 11px;"); self.btn_add_km.clicked.connect(lambda: self.append_to_local_file("KEYMAPS.FKB", self.km_res_box.toPlainText(), self.btn_add_km, self.keymap_status))
-        bv.addWidget(self.btn_copy_km); bv.addWidget(self.btn_add_km); res_row.addLayout(bv); layout.addLayout(res_row); self.update_active_km_pointer(0); self.update_keymap_output()
+        bv.addWidget(self.btn_copy_km); bv.addWidget(self.btn_add_km); res.addLayout(bv); layout.addLayout(res); self.update_active_km_pointer(0); self.update_keymap_output()
+
+    def update_keymap_output(self):
+        vals = [b.text() if b.text() else "0" for b in self.keymap_inputs]
+        self.km_res_box.setText(f"KM{self.km_id_edit.text()}:{self.km_name_edit.text()}:{','.join(vals)}")
+
+    def copy_keymap_result(self):
+        QApplication.clipboard().setText(self.km_res_box.toPlainText())
+        self.btn_copy_km.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_km.setText("COPY"))
 
     def reset_keymap_data(self):
         self.km_id_edit.setText("1"); self.km_name_edit.setText("Standard")
         for i, box in enumerate(self.keymap_inputs): box.setText(str(60 + i))
         self.update_active_km_pointer(0); self.update_keymap_output()
-
-    # --- TAB 3: CHORD GENERATOR ---
 
     def setup_chord_tab(self):
         layout = QVBoxLayout(self.tab_chord); layout.setContentsMargins(25, 10, 25, 15); layout.setSpacing(2)
@@ -673,33 +614,33 @@ class MFKBApp(QMainWindow):
         self.chord_name_edit = QLineEdit("Maj"); self.chord_name_edit.setFixedWidth(200); self.chord_name_edit.setMaxLength(12); self.chord_name_edit.textChanged.connect(self.update_chord_output); self.chord_name_edit.textChanged.connect(self.trigger_verification)
         h1.addWidget(QLabel("C ID:")); h1.addWidget(self.chord_id_edit); h1.addWidget(QLabel("NAME:")); h1.addWidget(self.chord_name_edit); h1.addStretch(); layout.addLayout(h1)
         self.chord_status = QLabel(""); layout.addWidget(self.chord_status); layout.addWidget(QLabel("STEP 2 : SELECT AN INTERVAL", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
-        grid_frame = QFrame(); grid_frame.setStyleSheet("background-color: #161b22; border-radius: 4px; border: 1px solid #30363d;"); gl = QGridLayout(grid_frame); gl.setSpacing(4); gl.addWidget(QLabel("Bass:"), 0, 0)
+        gf = QFrame(); gf.setStyleSheet("background-color: #161b22; border-radius: 4px; border: 1px solid #30363d;"); gl = QGridLayout(gf); gl.setSpacing(4); gl.addWidget(QLabel("Bass:"), 0, 0)
         for i, val in enumerate([-24, -12]):
-            btn = QPushButton(f"{val} (Oct)"); btn.setObjectName("IntervalBtn"); btn.setFixedSize(55, 25); btn.clicked.connect(lambda checked, v=val: self.on_interval_grid_click(v)); gl.addWidget(btn, 0, i + 1)
-        int_names = ["Root", "m2", "M2", "m3", "M3", "P4", "Tri", "P5", "m6", "M6", "m7", "M7", "Oct"]
+            btn = QPushButton(f"{val} (Oct)"); btn.setObjectName("IntervalBtn"); btn.setFixedSize(55, 25); btn.clicked.connect(lambda chk, v=val: self.on_interval_grid_click(v)); gl.addWidget(btn, 0, i + 1)
+        inames = ["Root", "m2", "M2", "m3", "M3", "P4", "Tri", "P5", "m6", "M6", "m7", "M7", "Oct"]
         for octave in range(3):
             base = octave * 12
             for st in range(1, 13):
                 val = base + st; label = f"+{val}"
-                if st < len(int_names): label += f" ({int_names[st]})"
-                btn = QPushButton(label); btn.setObjectName("IntervalBtn"); btn.setFixedSize(65, 22); btn.clicked.connect(lambda checked, v=val: self.on_interval_grid_click(v)); gl.addWidget(btn, octave + 1, st - 1)
-        layout.addWidget(grid_frame); layout.addWidget(QLabel("STEP 3 : CHORD VOICES", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
+                if st < len(inames): label += f" ({inames[st]})"
+                btn = QPushButton(label); btn.setObjectName("IntervalBtn"); btn.setFixedSize(65, 22); btn.clicked.connect(lambda chk, v=val: self.on_interval_grid_click(v)); gl.addWidget(btn, octave + 1, st - 1)
+        layout.addWidget(gf); layout.addWidget(QLabel("STEP 3 : CHORD VOICES", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
         sh = QHBoxLayout()
         for i in range(6):
             vbox = QVBoxLayout(); vbox.setSpacing(2); lbl = QLabel(f"Voice {i+1}:"); lbl.setStyleSheet("color: #8b949e; font-size: 9px;")
             box = QLineEdit(); box.setObjectName("ChordSlot"); box.setFixedWidth(55); box.installEventFilter(self); box.textChanged.connect(self.update_chord_output); self.chord_inputs.append(box); vbox.addWidget(lbl); vbox.addWidget(box); sh.addLayout(vbox)
-        sh.addStretch(); layout.addLayout(sh); layout.addStretch(1)
-        res_row = QHBoxLayout(); self.chord_res_box = QTextEdit(); self.chord_res_box.setObjectName("ResultBox"); self.chord_res_box.setFixedHeight(60); self.chord_res_box.setReadOnly(True); res_row.addWidget(self.chord_res_box)
+        sh.addStretch(); layout.addLayout(sh); layout.addStretch(1); res = QHBoxLayout(); self.chord_res_box = QTextEdit(); self.chord_res_box.setObjectName("ResultBox"); self.chord_res_box.setFixedHeight(60); self.chord_res_box.setReadOnly(True); res.addWidget(self.chord_res_box)
         bv = QVBoxLayout(); self.btn_copy_chord = QPushButton("COPY"); self.btn_copy_chord.setFixedHeight(25); self.btn_copy_chord.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 10px;"); self.btn_copy_chord.clicked.connect(self.copy_chord_result)
         self.btn_add_chord = QPushButton("ADD TO FILE"); self.btn_add_chord.setFixedHeight(35); self.btn_add_chord.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 11px;"); self.btn_add_chord.clicked.connect(lambda: self.append_to_local_file("CHORDS.FKB", self.chord_res_box.toPlainText(), self.btn_add_chord, self.chord_status))
-        bv.addWidget(self.btn_copy_chord); bv.addWidget(self.btn_add_chord); res_row.addLayout(bv); layout.addLayout(res_row); self.update_active_chord_pointer(0); self.update_chord_output()
+        bv.addWidget(self.btn_copy_chord); bv.addWidget(self.btn_add_chord); res.addLayout(bv); layout.addLayout(res); self.update_active_chord_pointer(0); self.update_chord_output()
 
-    def reset_chord_data(self):
-        self.chord_id_edit.setText("1"); self.chord_name_edit.setText("Maj")
-        for box in self.chord_inputs: box.clear()
-        self.update_active_chord_pointer(0); self.update_chord_output()
+    def update_chord_output(self):
+        f = ",".join([b.text().strip() for b in self.chord_inputs if b.text().strip()])
+        self.chord_res_box.setText(f"C{self.chord_id_edit.text()}:{self.chord_name_edit.text()}:{f}")
 
-    # --- TAB 4: PRESET GENERATOR ---
+    def copy_chord_result(self):
+        QApplication.clipboard().setText(self.chord_res_box.toPlainText())
+        self.btn_copy_chord.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_chord.setText("COPY"))
 
     def setup_preset_tab(self):
         layout = QVBoxLayout(self.tab_preset); layout.setContentsMargins(25, 10, 25, 15); layout.setSpacing(2)
@@ -714,26 +655,20 @@ class MFKBApp(QMainWindow):
         self.pre_es_combo = QComboBox(); self.pre_es_combo.setEditable(True); self.pre_es_combo.lineEdit().textChanged.connect(self.update_preset_output)
         self.pre_km_combo = QComboBox(); self.pre_km_combo.setEditable(True); self.pre_km_combo.lineEdit().textChanged.connect(self.update_preset_output)
         self.pre_mm_combo = QComboBox(); self.pre_mm_combo.setEditable(True); self.pre_mm_combo.lineEdit().textChanged.connect(self.update_preset_output)
-        gl.addWidget(QLabel("Root:"), 0, 0); gl.addWidget(self.pre_root_combo, 0, 1); gl.addWidget(QLabel("Basic Scale (S):"), 1, 0); gl.addWidget(self.pre_bs_combo, 1, 1); gl.addWidget(QLabel("Enh. Scale (S):"), 2, 0); gl.addWidget(self.pre_es_combo, 2, 1); gl.addWidget(QLabel("KeyMap (KM):"), 1, 2); gl.addWidget(self.pre_km_combo, 1, 3); gl.addWidget(QLabel("MidiMap (MM):"), 2, 2); gl.addWidget(self.pre_mm_combo, 2, 3); layout.addWidget(gf); layout.addWidget(QLabel("STEP 3 : MIDI DEFAULTS", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
+        gl.addWidget(QLabel("Root:"), 0, 0); gl.addWidget(self.pre_root_combo, 0, 1); gl.addWidget(QLabel("Scale (S):"), 1, 0); gl.addWidget(self.pre_bs_combo, 1, 1); gl.addWidget(QLabel("Enh. Scale (S):"), 2, 0); gl.addWidget(self.pre_es_combo, 2, 1); gl.addWidget(QLabel("KeyMap (KM):"), 1, 2); gl.addWidget(self.pre_km_combo, 1, 3); gl.addWidget(QLabel("MidiMap (MM):"), 2, 2); gl.addWidget(self.pre_mm_combo, 2, 3); layout.addWidget(gf); layout.addWidget(QLabel("STEP 3 : MIDI DEFAULTS", styleSheet="color: #2ecc71; font-weight: bold; font-size: 10px;"))
         hd = QHBoxLayout(); self.pre_vol = QLineEdit("100"); self.pre_vol.setFixedWidth(40); self.pre_vol.setValidator(QIntValidator(0, 127)); self.pre_vel = QLineEdit("100"); self.pre_vel.setFixedWidth(40); self.pre_vel.setValidator(QIntValidator(0, 127)); self.pre_chan = QLineEdit("1"); self.pre_chan.setFixedWidth(30); self.pre_chan.setValidator(QIntValidator(1, 16)); self.pre_trans = QComboBox()
         for v in range(-48, 49, 12): self.pre_trans.addItem(str(v))
         self.pre_trans.setCurrentText("0"); self.pre_vol.textChanged.connect(self.update_preset_output); self.pre_vel.textChanged.connect(self.update_preset_output); self.pre_chan.textChanged.connect(self.update_preset_output); self.pre_trans.currentIndexChanged.connect(self.update_preset_output)
-        hd.addWidget(QLabel("Volume:")); hd.addWidget(self.pre_vol); hd.addWidget(QLabel("Velocity:")); hd.addWidget(self.pre_vel); hd.addWidget(QLabel("Transpose:")); hd.addWidget(self.pre_trans); hd.addWidget(QLabel("Channel:")); hd.addWidget(self.pre_chan); hd.addStretch(); layout.addLayout(hd); layout.addStretch(1)
-        res_row = QHBoxLayout(); self.pre_res_box = QTextEdit(); self.pre_res_box.setObjectName("ResultBox"); self.pre_res_box.setReadOnly(True); self.pre_res_box.setFixedHeight(60); res_row.addWidget(self.pre_res_box)
+        hd.addWidget(QLabel("Vol:")); hd.addWidget(self.pre_vol); hd.addWidget(QLabel("Vel:")); hd.addWidget(self.pre_vel); hd.addWidget(QLabel("Tr:")); hd.addWidget(self.pre_trans); hd.addWidget(QLabel("Ch:")); hd.addWidget(self.pre_chan); hd.addStretch(); layout.addLayout(hd); layout.addStretch(1); res = QHBoxLayout(); self.pre_res_box = QTextEdit(); self.pre_res_box.setObjectName("ResultBox"); self.pre_res_box.setReadOnly(True); self.pre_res_box.setFixedHeight(60); res.addWidget(self.pre_res_box)
         bv = QVBoxLayout(); self.btn_copy_pre = QPushButton("COPY"); self.btn_copy_pre.setFixedHeight(25); self.btn_copy_pre.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 10px;"); self.btn_copy_pre.clicked.connect(self.copy_preset_result)
         self.btn_add_pre = QPushButton("ADD TO FILE"); self.btn_add_pre.setFixedHeight(35); self.btn_add_pre.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 11px;"); self.btn_add_pre.clicked.connect(lambda: self.append_to_local_file("PRESETS.FKB", self.pre_res_box.toPlainText(), self.btn_add_pre, self.preset_status))
-        bv.addWidget(self.btn_copy_pre); bv.addWidget(self.btn_add_pre); res_row.addLayout(bv); layout.addLayout(res_row); self.tabs.currentChanged.connect(self.on_tab_changed_preset_refresh); self.update_preset_output()
-
-    def reset_preset_data(self):
-        self.pre_id_edit.setText("1"); self.pre_name_edit.setText("Piano")
-        self.pre_vol.setText("100"); self.pre_vel.setText("100"); self.pre_chan.setText("1")
-        self.pre_trans.setCurrentText("0"); self.update_preset_output()
+        bv.addWidget(self.btn_copy_pre); bv.addWidget(self.btn_add_pre); res.addLayout(bv); layout.addLayout(res); self.tabs.currentChanged.connect(self.on_tab_changed_preset_refresh); self.update_preset_output()
 
     def update_preset_output(self):
-        root = self.pre_root_combo.currentText(); bs = self.pre_bs_combo.currentText(); es = self.pre_es_combo.currentText(); km = self.pre_km_combo.currentText(); mm = self.pre_mm_combo.currentText()
-        vol = self.pre_vol.text(); vel = self.pre_vel.text(); tr = self.pre_trans.currentText(); ch = self.pre_chan.text()
-        data = f"{root},{bs},{es},{km},{mm},{vol},{vel},{tr},{ch},0"
-        self.pre_res_box.setText(f"P{self.pre_id_edit.text()}:{self.pre_name_edit.text()}:{data}")
+        r = self.pre_root_combo.currentText(); b = self.pre_bs_combo.currentText(); e = self.pre_es_combo.currentText(); k = self.pre_km_combo.currentText(); m = self.pre_mm_combo.currentText()
+        v = self.pre_vol.text(); ve = self.pre_vel.text(); t = self.pre_trans.currentText(); c = self.pre_chan.text()
+        d = f"{r},{b},{e},{k},{m},{v},{ve},{t},{c},0"
+        self.pre_res_box.setText(f"P{self.pre_id_edit.text()}:{self.pre_name_edit.text()}:{d}")
 
     def copy_preset_result(self):
         QApplication.clipboard().setText(self.pre_res_box.toPlainText())
@@ -741,37 +676,31 @@ class MFKBApp(QMainWindow):
 
     def refresh_preset_dropdowns(self):
         self.pre_scan_assets()
-        bs = self.pre_bs_combo.currentText(); es = self.pre_es_combo.currentText(); km = self.pre_km_combo.currentText(); mm = self.pre_mm_combo.currentText()
+        bs, es, km, mm = self.pre_bs_combo.currentText(), self.pre_es_combo.currentText(), self.pre_km_combo.currentText(), self.pre_mm_combo.currentText()
         self.pre_bs_combo.clear(); self.pre_bs_combo.addItems(sorted(list(self.asset_db["SCALES_ID"])))
         self.pre_es_combo.clear(); self.pre_es_combo.addItems(sorted(list(self.asset_db["SCALES_ID"])))
         self.pre_km_combo.clear(); self.pre_km_combo.addItems(sorted(list(self.asset_db["KEYMAPS_ID"])))
         self.pre_mm_combo.clear(); self.pre_mm_combo.addItems(sorted(list(self.asset_db["MIDIMAPS_ID"])))
         self.pre_bs_combo.setCurrentText(bs); self.pre_es_combo.setCurrentText(es); self.pre_km_combo.setCurrentText(km); self.pre_mm_combo.setCurrentText(mm)
 
-    # --- TAB 5: FAVS MANAGER ---
-
     def setup_favs_tab(self):
         layout = QVBoxLayout(self.tab_favs); layout.setContentsMargins(25, 10, 25, 15); layout.setSpacing(5)
         layout.addWidget(QLabel("FAVOURITES MANAGER", styleSheet="color: #2ecc71; font-weight: bold; font-size: 14px;"))
-        layout.addWidget(QLabel("Assign a Preset to each of the 25 physical keys:", styleSheet="color: #8b949e; font-size: 10px;"))
-        grid_frame = QFrame(); grid_frame.setStyleSheet("background-color: #161b22; border-radius: 4px; border: 1px solid #30363d;"); gl = QGridLayout(grid_frame); gl.setSpacing(10)
+        layout.addWidget(QLabel("Assign a Preset to each physical key:", styleSheet="color: #8b949e; font-size: 10px;"))
+        gf = QFrame(); gf.setStyleSheet("background-color: #161b22; border-radius: 4px; border: 1px solid #30363d;"); gl = QGridLayout(gf); gl.setSpacing(10)
         for i in range(25):
-            col = i // 5; row = i % 5; vbox = QVBoxLayout(); lbl = QLabel(f"Key {str(i+1).zfill(2)} / Fav {str(i+1).zfill(2)}:"); lbl.setStyleSheet("color: #2ecc71; font-size: 9px; font-weight: bold;")
+            col, row = i // 5, i % 5; vbox = QVBoxLayout(); lbl = QLabel(f"Key {str(i+1).zfill(2)}:"); lbl.setStyleSheet("color: #2ecc71; font-size: 9px; font-weight: bold;")
             combo = QComboBox(); combo.setFixedWidth(120); combo.currentIndexChanged.connect(self.update_favs_output); self.fav_combos.append(combo); vbox.addWidget(lbl); vbox.addWidget(combo); gl.addLayout(vbox, row, col)
-        layout.addWidget(grid_frame); layout.addStretch(1)
-        res_row = QHBoxLayout(); self.favs_res_box = QTextEdit(); self.favs_res_box.setObjectName("ResultBox"); self.favs_res_box.setReadOnly(True); self.favs_res_box.setFixedHeight(80); res_row.addWidget(self.favs_res_box)
+        layout.addWidget(gf); layout.addStretch(1); res = QHBoxLayout(); self.favs_res_box = QTextEdit(); self.favs_res_box.setObjectName("ResultBox"); self.favs_res_box.setReadOnly(True); self.favs_res_box.setFixedHeight(80); res.addWidget(self.favs_res_box)
         bv = QVBoxLayout(); self.btn_copy_favs = QPushButton("COPY"); self.btn_copy_favs.setFixedHeight(30); self.btn_copy_favs.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 10px;"); self.btn_copy_favs.clicked.connect(self.copy_favs_result)
         self.btn_save_favs = QPushButton("SAVE TO FILE"); self.btn_save_favs.setFixedHeight(45); self.btn_save_favs.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 11px;"); self.btn_save_favs.clicked.connect(lambda: self.append_to_local_file("FAVS.FKB", self.favs_res_box.toPlainText(), self.btn_save_favs, None))
-        bv.addWidget(self.btn_copy_favs); bv.addWidget(self.btn_save_favs); res_row.addLayout(bv); layout.addLayout(res_row)
+        bv.addWidget(self.btn_copy_favs); bv.addWidget(self.btn_save_favs); res.addLayout(bv); layout.addLayout(res)
 
     def update_favs_output(self):
-        """Generates 25 lines, ensuring every line ends with the required ':' colon."""
         lines = []
         for combo in self.fav_combos:
             ref = combo.currentText().strip()
-            # Append colon if missing for Arduino sketch parsing
-            if ref and not ref.endswith(":"):
-                ref = ref + ":"
+            if ref and not ref.endswith(":"): ref += ":"
             lines.append(ref)
         self.favs_res_box.setText("\n".join(lines))
 
@@ -780,7 +709,6 @@ class MFKBApp(QMainWindow):
         self.btn_copy_favs.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_favs.setText("COPY"))
 
     def refresh_favs_dropdowns(self):
-        """Intelligent load: populates dropdowns from actual data lines in FAVS.FKB, stripping colons for UI."""
         self.pre_scan_assets(); preset_list = sorted(list(self.asset_db["PRESETS_ID"])); current_favs = []
         path = os.path.join(self.sd_local_dir, "FAVS.FKB")
         if os.path.exists(path):
@@ -789,23 +717,18 @@ class MFKBApp(QMainWindow):
                     for line in f:
                         clean = line.strip()
                         if clean and not clean.startswith("#"):
-                            # Strip trailing colon for clean dropdown display
-                            if clean.endswith(":"):
-                                clean = clean[:-1]
+                            if clean.endswith(":"): clean = clean[:-1]
                             current_favs.append(clean)
             except: pass
         for i, combo in enumerate(self.fav_combos):
-            combo.blockSignals(True); combo.clear()
-            file_val = current_favs[i] if i < len(current_favs) else ""
-            temp_list = preset_list[:]
-            if file_val and file_val not in temp_list: temp_list.append(file_val); temp_list.sort()
-            combo.addItems(temp_list)
-            if file_val: combo.setCurrentText(file_val)
+            combo.blockSignals(True); combo.clear(); fval = current_favs[i] if i < len(current_favs) else ""
+            tlist = preset_list[:]
+            if fval and fval not in tlist: tlist.append(fval); tlist.sort()
+            combo.addItems(tlist)
+            if fval: combo.setCurrentText(fval)
             elif preset_list: combo.setCurrentIndex(0)
             combo.blockSignals(False)
         self.update_favs_output()
-
-    # --- TAB 6: LIVE MODE MANAGER ---
 
     def setup_live_mode_tab(self):
         layout = QVBoxLayout(self.tab_live); layout.setContentsMargins(25, 10, 25, 15); layout.setSpacing(10)
@@ -817,39 +740,34 @@ class MFKBApp(QMainWindow):
             lbl = QLabel(note); lbl.setFixedWidth(65); lbl.setAlignment(Qt.AlignCenter); lbl.setStyleSheet("color: #2ecc71; font-weight: bold;")
             labels_hbox.addWidget(lbl)
         labels_hbox.addStretch(); layout.addLayout(labels_hbox)
-        
-        def create_chord_row(label_text, combo_list, label_list):
-            layout.addWidget(QLabel(label_text, styleSheet="color: #FFF; font-size: 9px; font-weight: bold;"))
+        def create_chord_row(text, clist, llist):
+            layout.addWidget(QLabel(text, styleSheet="color: #FFF; font-size: 9px; font-weight: bold;"))
             hbox = QHBoxLayout()
             for i in range(13):
-                vbox = QVBoxLayout(); vbox.setSpacing(2); combo = QComboBox(); combo.setFixedWidth(65); combo.currentIndexChanged.connect(self.update_live_mode_output); combo_list.append(combo)
-                lbl_name = QLabel("-"); lbl_name.setFixedWidth(65); lbl_name.setAlignment(Qt.AlignCenter); lbl_name.setStyleSheet("color: #8b949e; font-size: 8px;")
-                label_list.append(lbl_name); vbox.addWidget(combo); vbox.addWidget(lbl_name); hbox.addLayout(vbox)
+                vbox = QVBoxLayout(); vbox.setSpacing(2); combo = QComboBox(); combo.setFixedWidth(65); combo.currentIndexChanged.connect(self.update_live_mode_output); clist.append(combo)
+                lbl = QLabel("-"); lbl.setFixedWidth(65); lbl.setAlignment(Qt.AlignCenter); lbl.setStyleSheet("color: #8b949e; font-size: 8px;")
+                llist.append(lbl); vbox.addWidget(combo); vbox.addWidget(lbl); hbox.addLayout(vbox)
             hbox.addStretch(); layout.addLayout(hbox)
-
         create_chord_row("BASIC CHORDS (Pedal 2 OFF):", self.live_combos_basic, self.live_labels_basic)
         create_chord_row("ENHANCED CHORDS (Pedal 2 ON):", self.live_combos_enhanced, self.live_labels_enhanced)
-        
-        layout.addStretch(1)
-        res_row = QHBoxLayout(); self.live_res_box = QTextEdit(); self.live_res_box.setObjectName("ResultBox"); self.live_res_box.setReadOnly(True); self.live_res_box.setFixedHeight(60); res_row.addWidget(self.live_res_box)
+        layout.addStretch(1); res = QHBoxLayout(); self.live_res_box = QTextEdit(); self.live_res_box.setObjectName("ResultBox"); self.live_res_box.setReadOnly(True); self.live_res_box.setFixedHeight(60); res.addWidget(self.live_res_box)
         bv = QVBoxLayout(); self.btn_copy_live = QPushButton("COPY"); self.btn_copy_live.setFixedHeight(25); self.btn_copy_live.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 10px;"); self.btn_copy_live.clicked.connect(self.copy_live_mode_result)
         self.btn_save_live = QPushButton("SAVE TO FILE"); self.btn_save_live.setFixedHeight(35); self.btn_save_live.setStyleSheet("background-color: #2ecc71; color: black; font-weight: bold; font-size: 11px;"); self.btn_save_live.clicked.connect(lambda: self.append_to_local_file("LIVEMAP.FKB", self.live_res_box.toPlainText(), self.btn_save_live, None))
-        bv.addWidget(self.btn_copy_live); bv.addWidget(self.btn_save_live); res_row.addLayout(bv); layout.addLayout(res_row)
+        bv.addWidget(self.btn_copy_live); bv.addWidget(self.btn_save_live); res.addLayout(bv); layout.addLayout(res)
 
     def update_live_mode_output(self):
-        l1_ids, l2_ids = [], []
+        l1, l2 = [], []
         for i, combo in enumerate(self.live_combos_basic):
-            cid = combo.currentText().split(" | ")[0]; l1_ids.append(cid); self.live_labels_basic[i].setText(self.chord_map.get(cid, "-"))
+            cid = combo.currentText().split(" | ")[0]; l1.append(cid); self.live_labels_basic[i].setText(self.chord_map.get(cid, "-"))
         for i, combo in enumerate(self.live_combos_enhanced):
-            cid = combo.currentText().split(" | ")[0]; l2_ids.append(cid); self.live_labels_enhanced[i].setText(self.chord_map.get(cid, "-"))
-        self.live_res_box.setText(f"{','.join(l1_ids)}\n{','.join(l2_ids)}")
+            cid = combo.currentText().split(" | ")[0]; l2.append(cid); self.live_labels_enhanced[i].setText(self.chord_map.get(cid, "-"))
+        self.live_res_box.setText(f"{','.join(l1)}\n{','.join(l2)}")
 
     def copy_live_mode_result(self):
         QApplication.clipboard().setText(self.live_res_box.toPlainText())
         self.btn_copy_live.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_live.setText("COPY"))
 
     def refresh_live_mode_dropdowns(self):
-        """Intelligent load: populates dropdowns from actual data lines in LIVEMAP.FKB."""
         self.pre_scan_assets(); chord_list = sorted(list(self.asset_db["CHORDS_ID"])); data_lines = []
         path = os.path.join(self.sd_local_dir, "LIVEMAP.FKB")
         if os.path.exists(path):
@@ -859,101 +777,20 @@ class MFKBApp(QMainWindow):
                         clean = line.strip()
                         if clean and not clean.startswith("#"): data_lines.append(clean)
             except: pass
-        l1 = data_lines[0].split(",") if len(data_lines) >= 1 else []
-        l2 = data_lines[1].split(",") if len(data_lines) >= 2 else []
+        l1, l2 = data_lines[0].split(",") if len(data_lines) >= 1 else [], data_lines[1].split(",") if len(data_lines) >= 2 else []
         def sync_row(combos, data):
             for i, combo in enumerate(combos):
-                combo.blockSignals(True); combo.clear()
-                file_id = data[i] if i < len(data) else ""
+                combo.blockSignals(True); combo.clear(); fid = data[i] if i < len(data) else ""
                 for cid in chord_list: combo.addItem(f"{cid} | {self.chord_map.get(cid, '???')}")
                 found = False
                 for idx in range(combo.count()):
-                    if combo.itemText(idx).startswith(file_id + " |"): combo.setCurrentIndex(idx); found = True; break
-                if not found and file_id: combo.addItem(f"{file_id} | Missing"); combo.setCurrentText(f"{file_id} | Missing")
+                    if combo.itemText(idx).startswith(fid + " |"): combo.setCurrentIndex(idx); found = True; break
+                if not found and fid: combo.addItem(f"{fid} | Missing"); combo.setCurrentText(f"{fid} | Missing")
                 elif not found and chord_list: combo.setCurrentIndex(0)
                 combo.blockSignals(False)
-        sync_row(self.live_combos_basic, l1); sync_row(self.live_combos_enhanced, l2)
-        self.update_live_mode_output()
+        sync_row(self.live_combos_basic, l1); sync_row(self.live_combos_enhanced, l2); self.update_live_mode_output()
 
-    # --- UPDATERS & CORE HELPERS ---
-
-    def on_tab_changed_preset_refresh(self, index):
-        tname = self.tabs.tabText(index)
-        if tname == "Preset Generator": self.refresh_preset_dropdowns()
-        elif tname == "Favs Manager": self.refresh_favs_dropdowns()
-        elif tname == "Live Mode": self.refresh_live_mode_dropdowns()
-
-    def pre_scan_assets(self):
-        """Scanner builds the internal asset databases and chord mapping."""
-        for k in self.asset_db: self.asset_db[k].clear()
-        self.chord_map = {}
-        if not os.path.exists(self.sd_local_dir): return
-        for fn in os.listdir(self.sd_local_dir):
-            up = fn.upper(); pth = os.path.join(self.sd_local_dir, fn)
-            try:
-                with open(pth, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"): continue
-                        pts = line.split(":")
-                        if len(pts) > 1:
-                            id_v, lbl_v = pts[0].strip(), pts[1].strip()
-                            if up == "CHORDS.FKB":
-                                self.asset_db["CHORDS_ID"].add(id_v); self.asset_db["CHORDS_NAME"].add(lbl_v)
-                                self.chord_map[id_v] = lbl_v
-                            elif up == "SCALES.FKB": self.asset_db["SCALES_ID"].add(id_v); self.asset_db["SCALES_NAME"].add(lbl_v)
-                            elif up == "PRESETS.FKB": self.asset_db["PRESETS_ID"].add(id_v); self.asset_db["PRESETS_NAME"].add(lbl_v)
-                            elif up == "KEYMAPS.FKB": self.asset_db["KEYMAPS_ID"].add(id_v); self.asset_db["KEYMAPS_NAME"].add(lbl_v)
-                            elif up == "MIDIMAPS.FKB": self.asset_db["MIDIMAPS_ID"].add(id_v); self.asset_db["MIDIMAPS_NAME"].add(lbl_v)
-            except: pass
-
-    # --- SD MANAGER FUNCTIONAL METHODS ---
-
-    def on_midi_grid_click(self, value):
-        if self.active_km_index < 25:
-            self.keymap_inputs[self.active_km_index].setText(str(value))
-            if self.active_km_index < 24: self.update_active_km_pointer(self.active_km_index + 1)
-        self.update_keymap_output()
-
-    def on_interval_grid_click(self, value):
-        if self.active_chord_index < 6:
-            self.chord_inputs[self.active_chord_index].setText(str(value))
-            if self.active_chord_index < 5: self.update_active_chord_pointer(self.active_chord_index + 1)
-        self.update_chord_output()
-
-    def update_active_km_pointer(self, index):
-        self.active_km_index = index
-        for i, box in enumerate(self.keymap_inputs):
-            box.setProperty("active", "true" if i == index else "false")
-            box.style().unpolish(box); box.style().polish(box)
-
-    def update_active_chord_pointer(self, index):
-        self.active_chord_index = index
-        for i, box in enumerate(self.chord_inputs):
-            box.setProperty("active", "true" if i == index else "false")
-            box.style().unpolish(box); box.style().polish(box)
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.MouseButtonPress:
-            if obj in self.keymap_inputs: self.update_active_km_pointer(self.keymap_inputs.index(obj))
-            if obj in self.chord_inputs: self.update_active_chord_pointer(self.chord_inputs.index(obj))
-        return super().eventFilter(obj, event)
-
-    def update_keymap_output(self):
-        out = [box.text() if box.text() else "0" for box in self.keymap_inputs]
-        self.km_res_box.setText(f"KM{self.km_id_edit.text()}:{self.km_name_edit.text()}:{','.join(out)}")
-
-    def copy_keymap_result(self):
-        QApplication.clipboard().setText(self.km_res_box.toPlainText())
-        self.btn_copy_km.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_km.setText("COPY"))
-
-    def update_chord_output(self):
-        formula = ",".join([box.text().strip() for box in self.chord_inputs if box.text().strip()])
-        self.chord_res_box.setText(f"C{self.chord_id_edit.text()}:{self.chord_name_edit.text()}:{formula}")
-
-    def copy_chord_result(self):
-        QApplication.clipboard().setText(self.chord_res_box.toPlainText())
-        self.btn_copy_chord.setText("COPIED!"); QTimer.singleShot(1500, lambda: self.btn_copy_chord.setText("COPY"))
+    # --- SD CORE ---
 
     def setup_sd_tab(self):
         layout = QVBoxLayout(self.tab_sd); layout.setContentsMargins(20, 20, 20, 20)
@@ -967,90 +804,133 @@ class MFKBApp(QMainWindow):
         right_box = QVBoxLayout(); right_box.addWidget(QLabel("REMOTE (SD)", styleSheet="color: #8b949e; font-size: 10px;")); self.list_remote = QListWidget(); right_box.addWidget(self.list_remote); self.btn_refresh = QPushButton("REFRESH SD LIST"); self.btn_refresh.setObjectName("SD_Btn"); self.btn_refresh.clicked.connect(self.request_sd_list); right_box.addWidget(self.btn_refresh); panes.addLayout(right_box); layout.addLayout(panes)
         self.sd_console = QTextEdit(); self.sd_console.setObjectName("SD_Console"); self.sd_console.setFixedHeight(120); self.sd_console.setReadOnly(True); layout.addWidget(self.sd_console)
 
-    def set_busy(self, busy):
-        st = not busy
-        self.btn_to_sd.setEnabled(st); self.btn_from_sd.setEnabled(st); self.btn_edit_sd.setEnabled(st); self.btn_del.setEnabled(st); self.btn_refresh.setEnabled(st); self.btn_integrity.setEnabled(st); self.btn_full_backup.setEnabled(st); QApplication.processEvents()
-
-    def update_prog_bar(self, cur, tot, msg="Task"):
-        pct = int((cur / tot) * 100); marks = int(25 * cur // tot); bar = "#" * marks + "-" * (25 - marks)
-        if pct % 10 == 0 or cur == tot: self.sd_console.append(f"{msg}: [{bar}] {pct}%"); QApplication.processEvents()
-
     def request_sd_list(self):
-        if not self.current_port: return
-        self.set_busy(True); self.sd_console.clear()
+        ser = self.get_serial()
+        if not ser: return
+        self.set_busy(True); self.sd_console.clear(); self.list_remote.clear()
         try:
-            with serial.Serial(self.current_port, 115200, timeout=1) as ser:
-                time.sleep(2); ser.reset_input_buffer(); ser.write(b"SD_LS\n"); self.list_remote.clear()
-                start = time.time()
-                while (time.time() - start) < 5:
-                    if ser.in_waiting:
-                        ln = ser.readline().decode().strip()
-                        if ln == "SD_END" or not ln: break
-                        if ln.startswith("FILE:"): self.list_remote.addItem(ln.replace("FILE:", "").split("|")[0])
-                self.sd_console.append("Scan Successful.")
-        except Exception as e: self.sd_console.append(f"Error: {e}")
+            ser.reset_input_buffer(); ser.write(b"SD_LS\n"); start = time.time()
+            while (time.time() - start) < 5:
+                if ser.in_waiting:
+                    ln = ser.readline().decode().strip()
+                    if ln == "SD_END" or not ln: break
+                    if ln.startswith("FILE:"): self.list_remote.addItem(ln.replace("FILE:", "").split("|")[0])
+            self.sd_console.append("Scan Successful.")
+        except Exception as e: self.sd_console.append(f"Error: {e}"); self.close_serial()
         self.set_busy(False)
 
     def delete_selected_remote(self):
-        item = self.list_remote.currentItem()
-        if not item or not self.current_port: return
+        item = self.list_remote.currentItem(); ser = self.get_serial()
+        if not item or not ser: return
         if QMessageBox.question(self, "Delete", f"Erase {item.text()}?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
             try:
-                with serial.Serial(self.current_port, 115200, timeout=2) as ser:
-                    time.sleep(2); ser.write(f"SD_DEL:{item.text()}\n".encode())
-                    if ser.readline().decode().strip() == "DEL_OK": self.sd_console.append(f"Deleted: {item.text()}"); self.request_sd_list()
-            except Exception as e: self.sd_console.append(f"Fail: {e}")
+                ser.reset_input_buffer(); ser.write(f"SD_DEL:{item.text()}\n".encode()); res = ser.readline().decode().strip()
+                if res == "DEL_OK": self.sd_console.append(f"Deleted: {item.text()}"); self.request_sd_list()
+            except Exception as e: self.sd_console.append(f"Fail: {e}"); self.close_serial()
 
     def upload_selected(self):
-        item = self.list_local.currentItem()
-        if not item or not self.current_port: return
+        item = self.list_local.currentItem(); ser = self.get_serial()
+        if not item or not ser: return
         path = os.path.join(self.sd_local_dir, item.text())
         self.set_busy(True)
         try:
             with open(path, 'r') as f: lines = f.readlines()
-            total = len(lines)
-            with serial.Serial(self.current_port, 115200, timeout=2) as ser:
-                time.sleep(2); ser.write(f"SD_WRITE:{item.text()}\n".encode())
-                while ser.readline().decode().strip() != "READY_TO_RECEIVE": pass
-                for i, ln in enumerate(lines):
-                    ser.write(f"{ln.strip()}\n".encode()); ser.readline(); self.update_prog_bar(i + 1, total, "Upload")
-                ser.write(b"SD_EOF\n"); self.sd_console.append(f"Stored: {item.text()}"); self.request_sd_list()
-        except Exception as e: self.sd_console.append(f"Error: {e}")
+            ser.reset_input_buffer(); ser.write(f"SD_WRITE:{item.text()}\n".encode())
+            while ser.readline().decode().strip() != "READY_TO_RECEIVE": pass
+            for i, ln in enumerate(lines):
+                ser.write(f"{ln.strip()}\n".encode()); ser.readline(); self.update_prog_bar(i + 1, len(lines), "Upload")
+            ser.write(b"SD_EOF\n"); self.sd_console.append(f"Stored: {item.text()}"); self.request_sd_list()
+        except Exception as e: self.sd_console.append(f"Error: {e}"); self.close_serial()
         self.set_busy(False)
 
     def download_selected(self):
-        item = self.list_remote.currentItem()
-        if not item or not self.current_port: return
+        item = self.list_remote.currentItem(); ser = self.get_serial()
+        if not item or not ser: return
         path = os.path.join(self.sd_local_dir, item.text())
         self.set_busy(True)
         try:
-            with serial.Serial(self.current_port, 115200, timeout=2) as ser:
-                time.sleep(2); ser.write(f"SD_READ:{item.text()}\n".encode()); buf = []
-                while True:
-                    ln = ser.readline().decode().strip()
-                    if ln == "END_FILE": break
-                    if not ln.startswith("START_FILE:"): buf.append(ln)
-                with open(path, 'w') as f: f.write("\n".join(buf))
-                self.sd_console.append(f"Downloaded: {item.text()}"); self.refresh_local_sd_list()
-        except Exception as e: self.sd_console.append(f"Error: {e}")
+            ser.reset_input_buffer(); ser.write(f"SD_READ:{item.text()}\n".encode()); buf = []; started = False
+            while True:
+                ln = ser.readline().decode().strip()
+                if not started:
+                    if ln.startswith("START_FILE:"): started = True
+                    continue
+                if ln == "END_FILE": break
+                buf.append(ln)
+            with open(path, 'w') as f: f.write("\n".join(buf))
+            self.sd_console.append(f"Downloaded: {item.text()}"); self.refresh_local_sd_list()
+        except Exception as e: self.sd_console.append(f"Error: {e}"); self.close_serial()
         self.set_busy(False)
 
     def run_full_backup(self):
-        cnt = self.list_remote.count()
-        if cnt == 0: return
+        cnt = self.list_remote.count(); ser = self.get_serial()
+        if cnt == 0 or not ser: return
         self.set_busy(True); ts = datetime.now().strftime("%Y-%m-%d_%H-%M"); dest = os.path.join(self.sd_backup_dir, ts); os.makedirs(dest, exist_ok=True)
         for i in range(cnt):
             fname = self.list_remote.item(i).text(); self.update_prog_bar(i + 1, cnt, "Archiving")
             try:
-                with serial.Serial(self.current_port, 115200, timeout=2) as ser:
-                    time.sleep(2); ser.write(f"SD_READ:{fname}\n".encode()); b = []
-                    while True:
-                        r = ser.readline().decode().strip();
-                        if r == "END_FILE": break
-                        if not r.startswith("START_FILE:"): b.append(r)
-                    with open(os.path.join(dest, fname), 'w') as f: f.write("\n".join(b))
-            except: pass
+                ser.reset_input_buffer(); ser.write(f"SD_READ:{fname}\n".encode()); b = []; started = False
+                while True:
+                    r = ser.readline().decode().strip()
+                    if not started:
+                        if r.startswith("START_FILE:"): started = True
+                        continue
+                    if r == "END_FILE": break
+                    b.append(r)
+                with open(os.path.join(dest, fname), 'w') as f: f.write("\n".join(b))
+            except: self.close_serial(); break
         self.sd_console.append("Backup Complete."); self.set_busy(False)
+
+    # --- HELPERS ---
+
+    def on_midi_grid_click(self, value):
+        if self.active_km_index < 25:
+            self.keymap_inputs[self.active_km_index].setText(str(value))
+            if self.active_km_index < 24: self.update_active_km_pointer(self.active_km_index + 1)
+        self.update_keymap_output()
+
+    def update_active_km_pointer(self, index):
+        self.active_km_index = index
+        for i, box in enumerate(self.keymap_inputs):
+            box.setProperty("active", "true" if i == index else "false"); box.style().unpolish(box); box.style().polish(box)
+
+    def on_interval_grid_click(self, value):
+        if self.active_chord_index < 6:
+            self.chord_inputs[self.active_chord_index].setText(str(value))
+            if self.active_chord_index < 5: self.update_active_chord_pointer(self.active_chord_index + 1)
+        self.update_chord_output()
+
+    def update_active_chord_pointer(self, index):
+        self.active_chord_index = index
+        for i, box in enumerate(self.chord_inputs):
+            box.setProperty("active", "true" if i == index else "false"); box.style().unpolish(box); box.style().polish(box)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress:
+            if obj in self.keymap_inputs: self.update_active_km_pointer(self.keymap_inputs.index(obj))
+            if obj in self.chord_inputs: self.update_active_chord_pointer(self.chord_inputs.index(obj))
+        return super().eventFilter(obj, event)
+
+    def pre_scan_assets(self):
+        for k in self.asset_db: self.asset_db[k].clear()
+        self.chord_map = {}
+        if not os.path.exists(self.sd_local_dir): return
+        for fn in os.listdir(self.sd_local_dir):
+            up = fn.upper(); pth = os.path.join(self.sd_local_dir, fn)
+            try:
+                with open(pth, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"): continue
+                        pts = line.split(":")
+                        if len(pts) > 1:
+                            id_v, lbl_v = pts[0].strip(), pts[1].strip()
+                            if up == "CHORDS.FKB": self.asset_db["CHORDS_ID"].add(id_v); self.asset_db["CHORDS_NAME"].add(lbl_v); self.chord_map[id_v] = lbl_v
+                            elif up == "SCALES.FKB": self.asset_db["SCALES_ID"].add(id_v); self.asset_db["SCALES_NAME"].add(lbl_v)
+                            elif up == "PRESETS.FKB": self.asset_db["PRESETS_ID"].add(id_v); self.asset_db["PRESETS_NAME"].add(lbl_v)
+                            elif up == "KEYMAPS.FKB": self.asset_db["KEYMAPS_ID"].add(id_v); self.asset_db["KEYMAPS_NAME"].add(lbl_v)
+                            elif up == "MIDIMAPS.FKB": self.asset_db["MIDIMAPS_ID"].add(id_v); self.asset_db["MIDIMAPS_NAME"].add(lbl_v)
+            except: pass
 
     def run_integrity_check(self):
         item = self.list_local.currentItem()
@@ -1097,7 +977,7 @@ class MFKBApp(QMainWindow):
             dlg = FileEditor(item.text(), text, self)
             if dlg.exec_() == QDialog.Accepted:
                 with open(path, 'w') as f: f.write(dlg.editor.toPlainText())
-                self.sd_console.append(f"Updated: {item.text()} Supreme."); self.refresh_local_sd_list()
+                self.sd_console.append(f"Updated: {item.text()}"); self.refresh_local_sd_list()
         except Exception as e: self.sd_console.append(f"Error: {e}")
 
     def refresh_local_sd_list(self):
@@ -1106,15 +986,20 @@ class MFKBApp(QMainWindow):
             files = sorted([f for f in os.listdir(self.sd_local_dir) if f.lower().endswith(".fkb")])
             self.list_local.addItems(files)
 
-    # --- TAB 7: FIRMWARE UPLOADER ---
+    def on_tab_changed_preset_refresh(self, index):
+        tname = self.tabs.tabText(index)
+        if tname == "Preset Generator": self.refresh_preset_dropdowns()
+        elif tname == "Favs Manager": self.refresh_favs_dropdowns()
+        elif tname == "Live Mode": self.refresh_live_mode_dropdowns()
+
+    # --- FIRMWARE ---
 
     def setup_uploader_tab(self):
         layout = QVBoxLayout(self.tab_flash); layout.setContentsMargins(30, 20, 30, 20)
         h = QHBoxLayout(); h.addWidget(QLabel("FIRMWARE UPDATE", styleSheet="color: #2ecc71; font-weight: bold; font-size: 14px;")); h.addStretch()
         self.btn_backup_fw = QPushButton("BACKUP FIRMWARE"); self.btn_backup_fw.setObjectName("BackupBtn"); self.btn_backup_fw.setFixedSize(180, 30); self.btn_backup_fw.setEnabled(False); self.btn_backup_fw.clicked.connect(self.start_backup_fw); h.addWidget(self.btn_backup_fw)
         layout.addLayout(h)
-        s = QHBoxLayout(); self.combo_hex = QComboBox(); self.combo_hex.setMinimumWidth(300); self.btn_refresh_fw = QPushButton("Refresh"); self.btn_refresh_fw.setObjectName("UtilityBtn"); self.btn_refresh_fw.clicked.connect(self.refresh_firmware_list); s.addWidget(self.combo_hex); s.addWidget(self.btn_refresh_fw); s.addStretch()
-        layout.addLayout(s)
+        s = QHBoxLayout(); self.combo_hex = QComboBox(); self.combo_hex.setMinimumWidth(300); self.btn_refresh_fw = QPushButton("Refresh"); self.btn_refresh_fw.setObjectName("UtilityBtn"); self.btn_refresh_fw.clicked.connect(self.refresh_firmware_list); s.addWidget(self.combo_hex); s.addWidget(self.btn_refresh_fw); s.addStretch(); layout.addLayout(s)
         self.btn_flash = QPushButton("START FLASHING"); self.btn_flash.setObjectName("FlashBtn"); self.btn_flash.setFixedHeight(50); self.btn_flash.setEnabled(False); self.btn_flash.clicked.connect(self.start_flash_process); layout.addWidget(self.btn_flash); layout.addSpacing(20); self.console_box = QTextEdit(); self.console_box.setObjectName("ConsoleBox"); self.console_box.setReadOnly(True); self.console_box.setFixedHeight(150); layout.addWidget(self.console_box)
 
     def refresh_firmware_list(self):
@@ -1126,11 +1011,13 @@ class MFKBApp(QMainWindow):
             else: self.btn_flash.setEnabled(False)
 
     def start_flash_process(self):
+        self.close_serial() 
         pth = os.path.join(self.firmware_dir, self.combo_hex.currentText()); self.btn_flash.setEnabled(False); self.btn_backup_fw.setEnabled(False)
         self.console_box.clear(); self.console_box.append(f"Flashing: {self.combo_hex.currentText()}")
         args = ["-C", self.conf_path, "-v", "-p", "m2560", "-c", "wiring", "-P", self.current_port, "-b", "115200", "-D", "-U", f"flash:w:{pth}:i"]; self.process.start(self.tools_path, args)
 
     def start_backup_fw(self):
+        self.close_serial()
         dest, _ = QFileDialog.getSaveFileName(self, "Backup", os.path.join(self.firmware_dir, "backup.hex"), "Hex (*.hex)")
         if dest:
             self.btn_flash.setEnabled(False); self.btn_backup_fw.setEnabled(False)
@@ -1156,7 +1043,15 @@ class MFKBApp(QMainWindow):
                     if self.combo_hex.currentText().endswith(".hex"): self.btn_flash.setEnabled(True)
                     found = True; break
         if not found:
-            self.status_dot.setStyleSheet("color: #e74c3c; font-size: 14px; margin-left: 10px;"); self.status_text.setText("Device not detected"); self.current_port = None; self.btn_flash.setEnabled(False); self.btn_backup_fw.setEnabled(False)
+            self.status_dot.setStyleSheet("color: #e74c3c; font-size: 14px; margin-left: 10px;"); self.status_text.setText("Device not detected"); self.current_port = None; self.btn_flash.setEnabled(False); self.btn_backup_fw.setEnabled(False); self.close_serial()
+
+    def set_busy(self, busy):
+        st = not busy
+        self.btn_to_sd.setEnabled(st); self.btn_from_sd.setEnabled(st); self.btn_edit_sd.setEnabled(st); self.btn_del.setEnabled(st); self.btn_refresh.setEnabled(st); self.btn_integrity.setEnabled(st); self.btn_full_backup.setEnabled(st); QApplication.processEvents()
+
+    def update_prog_bar(self, cur, tot, msg="Task"):
+        pct = int((cur / tot) * 100); marks = int(25 * cur // tot); bar = "#" * marks + "-" * (25 - marks)
+        if pct % 10 == 0 or cur == tot: self.sd_console.append(f"{msg}: [{bar}] {pct}%"); QApplication.processEvents()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv); window = MFKBApp(); window.show(); sys.exit(app.exec_())
